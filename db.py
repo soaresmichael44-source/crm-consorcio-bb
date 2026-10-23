@@ -208,8 +208,11 @@ class _ConexaoPg:
     def __exit__(self, tipo, *_):
         try:
             self._conn.rollback() if tipo else self._conn.commit()
+        except Exception:
+            if not tipo:
+                raise  # falha ao gravar: o erro tem de aparecer
         finally:
-            self._pool.putconn(self._conn)
+            self._pool.putconn(self._conn)  # o pool descarta sozinho conexão quebrada
 
 
 _pool = None
@@ -222,8 +225,11 @@ def _pool_pg():
         if _pool is None:
             from psycopg_pool import ConnectionPool
             # prepare_threshold=None: o pooler do Supabase não guarda prepared statements entre clientes.
+            # check: testa a conexão antes de entregar (o pooler do Supabase derruba conexões paradas);
+            # max_idle: descarta conexões ociosas antes que o servidor as feche.
             _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=int(os.getenv("PG_POOL_MAX", "5")),
-                                   kwargs={"prepare_threshold": None}, open=True)
+                                   kwargs={"prepare_threshold": None}, check=ConnectionPool.check_connection,
+                                   max_idle=120, open=True)
         return _pool
 
 
