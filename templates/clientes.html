@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block titulo %}Clientes{% endblock %}
+{% block corpo %}
+<h1>Clientes BB</h1>
+<p class="sub">{{ clientes|length }} cliente(s){% if etapa %} em “{{ ETAPAS_DICT[etapa] }}”{% endif %}.</p>
+<form class="card linha" method="get">
+  <input name="q" value="{{ busca }}" placeholder="Buscar por nome, telefone, e-mail ou cidade" style="flex:2;min-width:200px">
+  <select name="etapa" style="flex:1;min-width:160px"><option value="">Todas as etapas</option>
+    {% for k, n in ETAPAS %}<option value="{{ k }}" {{ 'selected' if k == etapa }}>{{ n }}</option>{% endfor %}</select>
+  <button class="btn pri">Filtrar</button>
+</form>
+<div class="card tabela-scroll">
+<table>
+  <thead><tr><th>Nome</th><th>Telefone</th><th>Produto</th><th>Crédito</th><th>Situação BB</th><th>Etapa</th><th>Contatos</th><th>Próximo</th></tr></thead>
+  <tbody>
+  {% for c in clientes %}
+    <tr onclick="location='/cliente/{{ c.id }}'" style="cursor:pointer">
+      <td><strong>{{ c.nome }}</strong>{% if c.pausado %} <span class="tag">pausado</span>{% endif %}</td>
+      <td>{{ fmt_tel(c.telefone) or '—' }}</td>
+      <td>{{ c.produto or '—' }}</td>
+      <td>{{ c.valor_credito|dinheiro }}</td>
+      <td class="muted">{{ c.situacao_bb or '—' }}</td>
+      <td><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span></td>
+      <td>{{ c.tentativas }}</td>
+      <td class="muted">{{ c.proximo_contato|data }}</td>
+    </tr>
+  {% else %}<tr><td colspan="8" class="muted">Nenhum cliente. <a href="/importar">Importar lista</a></td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

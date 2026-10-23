@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block titulo %}Fila de follow-up{% endblock %}
+{% block head %}
+<style>
+.item{display:grid;grid-template-columns:240px 1fr;gap:18px;padding:16px 0;border-bottom:1px solid var(--borda)}
+.item:last-child{border-bottom:0}
+.item textarea{min-height:120px}
+.item.feito{opacity:.45}
+@media (max-width:860px){.item{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+{% block corpo %}
+<div class="linha" style="align-items:flex-start">
+  <div><h1>Fila de follow-up</h1>
+  <p class="sub">{{ itens|length }} cliente(s) com contato vencido · {{ envios_hoje }}/{{ cfg.max_envios_dia }} mensagens hoje ·
+    modo WhatsApp: <strong>{{ 'automático (robô)' if cfg.modo_whatsapp == 'ponte' else 'manual (você clica e envia)' }}</strong></p></div>
+  <span class="sp"></span>
+  <button class="btn pri" id="btnRedigir">Redigir mensagens que faltam</button>
+</div>
+<div id="st" class="muted" style="margin-bottom:10px"></div>
+{% if not horario_ok %}<div class="aviso">Fora do horário comercial configurado. Você ainda pode enviar manualmente, mas evite mensagens à noite e aos domingos.</div>{% endif %}
+{% if envios_hoje >= cfg.max_envios_dia|int %}<div class="aviso erro">Limite diário de mensagens atingido. Enviar muito mais do que isso num mesmo número aumenta o risco de bloqueio pelo WhatsApp.</div>{% endif %}
+
+<div class="card">
+{% for c in itens %}
+  <div class="item" id="item{{ c.id }}">
+    <div>
+      <a href="/cliente/{{ c.id }}"><strong>{{ c.nome }}</strong></a><br>
+      <span class="muted">{{ fmt_tel(c.telefone) or 'sem telefone' }}</span><br>
+      {% if c.email %}<span class="muted">{{ c.email }}</span><br>{% endif %}
+      <div style="margin-top:6px"><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span></div>
+      <div class="muted" style="margin-top:6px;font-size:12px">
+        {{ c.produto or 'produto ?' }} · {{ c.valor_credito|dinheiro }}<br>
+        {% if c.situacao_bb %}BB: {{ c.situacao_bb }}<br>{% endif %}
+        Contato nº {{ c.tentativas + 1 }}{% if c.ultimo_contato %} · último {{ c.ultimo_contato|data }}{% endif %}
+      </div>
+    </div>
+    <div>
+      <textarea id="txt{{ c.id }}" placeholder="Clique em “Redigir” para a IA escrever a mensagem desta etapa">{{ c.rascunho or '' }}</textarea>
+      <div class="linha" style="margin-top:8px">
+        {% if c.telefone %}
+        <button class="btn wa" onclick="abrirWhats({{ c.id }}, '{{ c.telefone }}')">Abrir no WhatsApp e marcar enviado</button>
+        {% if cfg.modo_whatsapp == 'ponte' %}<button class="btn" onclick="enviarAuto({{ c.id }})">Enviar pelo robô</button>{% endif %}
+        {% endif %}
+        <button class="btn" onclick="redigir({{ c.id }})">{{ 'Reescrever' if c.rascunho else 'Redigir' }}</button>
+        <span class="sp"></span>
+        <button class="btn peq" onclick="adiar({{ c.id }})" title="Joga este cliente para amanhã">Amanhã</button>
+        <button class="btn peq" onclick="pausar({{ c.id }})">Pausar cadência</button>
+      </div>
+      <div id="st{{ c.id }}" class="muted" style="margin-top:6px"></div>
+    </div>
+  </div>
+{% else %}
+  <p class="muted">Nenhum follow-up vencido agora. 🎯 <a href="/importar">Importar nova lista</a></p>
+{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const st = (id, t) => document.getElementById('st'+id).textContent = t;
+const feito = (id, t) => { st(id, t); document.getElementById('item'+id).classList.add('feito'); };
+async function redigir(id){
+  st(id, 'A IA está escrevendo…');
+  try { const j = await api(`/api/cliente/${id}/rascunho`); document.getElementById('txt'+id).value = j.texto; st(id, ''); }
+  catch(e){ st(id, 'Erro: ' + e.message); }
+}
+async function abrirWhats(id, tel){
+  const texto = document.getElementById('txt'+id).value.trim();
+  if (!texto) return st(id, 'Escreva ou redija a mensagem primeiro.');
+  // Abre a janela antes do await para o navegador não bloquear como pop-up.
+  const w = window.open('about:blank', '_blank');
+  try { const j = await api(`/api/cliente/${id}/enviado`, {texto}); w.location = j.link; feito(id, 'Aberto no WhatsApp — confira e aperte enviar lá. Próximo contato agendado.'); }
+  catch(e){ w.close(); st(id, 'Erro: ' + e.message); }
+}
+async function enviarAuto(id){
+  const texto = document.getElementById('txt'+id).value.trim();
+  if (!texto) return st(id, 'Escreva ou redija a mensagem primeiro.');
+  st(id, 'Enviando pelo robô…');
+  try { await api(`/api/cliente/${id}/enviar-auto`, {texto}); feito(id, 'Enviado pelo robô.'); }
+  catch(e){ st(id, 'Erro: ' + e.message); }
+}
+async function adiar(id){
+  const d = new Date(Date.now() + 864e5); d.setHours(9,0,0,0);
+  const iso = new Date(d - d.getTimezoneOffset()*6e4).toISOString().slice(0,16);
+  await api(`/api/cliente/${id}/atualizar`, {proximo_contato: iso}); feito(id, 'Adiado para amanhã 9h.');
+}
+async function pausar(id){ await api(`/api/cliente/${id}/atualizar`, {pausado: true}); feito(id, 'Cadência pausada para este cliente.'); }
+document.getElementById('btnRedigir').onclick = async (ev) => {
+  ev.target.disabled = true; document.getElementById('st').textContent = 'A IA está escrevendo as mensagens (até o limite diário)…';
+  try { const r = await api('/api/ciclo?rascunhos=1'); location.reload(); }
+  catch(e){ document.getElementById('st').textContent = 'Erro: ' + e.message; ev.target.disabled = false; }
+};
+</script>
+{% endblock %}

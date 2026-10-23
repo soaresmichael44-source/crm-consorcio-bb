@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block titulo %}Importar listas{% endblock %}
+{% block head %}
+<style>
+.drop{border:2px dashed #b9c3e0;border-radius:14px;background:#fff;padding:34px 20px;text-align:center;cursor:pointer;transition:.15s}
+.drop.sobre{border-color:var(--azul-2);background:#eef2ff}
+.drop strong{display:block;font-size:16px;margin-bottom:6px}
+.miniaturas{display:flex;flex-wrap:wrap;gap:12px;margin-top:16px}
+.mini{width:132px;border:1px solid var(--borda);border-radius:10px;overflow:hidden;background:#fff;position:relative;font-size:11px}
+.mini img{width:100%;height:96px;object-fit:cover;display:block;background:#eef1f8}
+.mini .st{padding:6px 8px;color:var(--suave);min-height:28px}
+.mini .st.ok{color:var(--verde);font-weight:600}.mini .st.err{color:var(--vermelho);font-weight:600}
+.atalhos{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.atalhos .btn{flex:1;min-width:150px;justify-content:center;padding:12px 14px}
+.mini.pdf .tipo{height:96px;display:flex;align-items:center;justify-content:center;background:#fbe9e9;color:var(--vermelho);font-weight:700}
+.mini .x{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:50%;width:22px;height:22px;cursor:pointer}
+#tabela input,#tabela select{padding:5px 7px;font-size:13px}
+#tabela td{padding:5px 4px}
+.tel-ruim{border-color:var(--vermelho)!important;background:#fff5f5!important}
+.conf{font-size:10px;font-weight:700;text-transform:uppercase}
+.conf.baixa{color:var(--vermelho)}.conf.media{color:var(--laranja)}.conf.alta{color:var(--verde)}
+</style>
+{% endblock %}
+{% block corpo %}
+<h1>Importar listas do Banco do Brasil</h1>
+<p class="sub">Solte aqui as fotos ou prints das listas. A IA lê cada imagem, separa cliente por cliente e você confere antes de salvar.</p>
+
+<div class="card">
+  <div id="drop" class="drop">
+    <strong>Arraste as fotos aqui, cole com Ctrl/⌘+V ou clique para escolher</strong>
+    <span class="muted">JPG, PNG, WEBP, HEIC ou PDF · várias de uma vez</span>
+    <input id="arquivo" type="file" accept="image/*,application/pdf" multiple hidden>
+  </div>
+  <div class="atalhos">
+    <button type="button" class="btn am" onclick="inCamera.click()">📷 Tirar foto agora</button>
+    <button type="button" class="btn" onclick="inImagens.click()">🖼️ Imagens já salvas</button>
+    <button type="button" class="btn" onclick="inPdf.click()">📄 Arquivo PDF</button>
+    <input id="inCamera" type="file" accept="image/*" capture="environment" hidden>
+    <input id="inImagens" type="file" accept="image/*" multiple hidden>
+    <input id="inPdf" type="file" accept="application/pdf,.pdf" multiple hidden>
+  </div>
+  <div id="miniaturas" class="miniaturas"></div>
+  <div class="linha" style="margin-top:16px">
+    <button id="btnLer" class="btn pri" disabled>Ler listas com IA</button>
+    <span id="progresso" class="muted"></span>
+  </div>
+  <p class="muted" style="font-size:12px;margin:12px 0 0">CPF, RG, agência e conta são ignorados de propósito — o sistema não guarda dados bancários do cliente.</p>
+</div>
+
+<div id="revisao" class="card" hidden>
+  <div class="linha" style="margin-bottom:12px">
+    <h2 style="margin:0">Conferir antes de salvar <span id="qtd" class="tag"></span></h2>
+    <span class="sp"></span>
+    <button class="btn peq" onclick="marcarTodos(true)">Marcar todos</button>
+    <button class="btn peq" onclick="marcarTodos(false)">Desmarcar</button>
+  </div>
+  <div id="obs" class="aviso" hidden></div>
+  <div class="tabela-scroll">
+  <table id="tabela">
+    <thead><tr><th></th><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Cidade</th><th>Produto</th><th>Crédito (R$)</th><th>Situação no BB</th><th>Leitura</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  </div>
+  <div class="grid g2" style="margin-top:16px;align-items:end">
+    <div><label>Descrição do lote (opcional)</label><input id="descricao" placeholder="Ex.: Lista agência Savassi — 21/10"></div>
+    <div class="linha" style="justify-content:flex-end"><button id="btnSalvar" class="btn am">Salvar clientes selecionados</button></div>
+  </div>
+</div>
+
+<div id="final" class="card" hidden></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const arquivos = [];   // {file, url, el, status}
+let lidos = [];
+const drop = document.getElementById('drop'), input = document.getElementById('arquivo');
+
+drop.onclick = () => input.click();
+input.onchange = () => { adicionar([...input.files]); input.value = ''; };
+// Atalhos: câmera do celular, imagens já salvas e PDF (somam com o arrastar/colar acima).
+['inCamera', 'inImagens', 'inPdf'].forEach(id => {
+  const el = document.getElementById(id);
+  el.onchange = () => { adicionar([...el.files]); el.value = ''; };
+});
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {ev.preventDefault(); drop.classList.add('sobre');}));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {ev.preventDefault(); drop.classList.remove('sobre');}));
+drop.addEventListener('drop', ev => adicionar([...ev.dataTransfer.files]));
+document.addEventListener('paste', ev => {
+  const fs = [...ev.clipboardData.items].filter(i => i.kind === 'file').map(i => i.getAsFile());
+  if (fs.length) adicionar(fs);
+});
+
+function adicionar(fs){
+  fs.filter(f => f.type.startsWith('image/') || f.type === 'application/pdf').forEach(f => {
+    const item = {file: f, url: f.type.startsWith('image/') ? URL.createObjectURL(f) : '', status: 'pendente'};
+    const el = document.createElement('div'); el.className = 'mini';
+    if (!item.url) el.classList.add('pdf');
+    el.innerHTML = (item.url ? `<img src="${item.url}">` : `<div class="tipo">PDF</div>`) +
+      `<button class="x" title="Remover">×</button><div class="st">${f.name || 'colada'} · aguardando</div>`;
+    el.querySelector('.x').onclick = () => { arquivos.splice(arquivos.indexOf(item), 1); el.remove(); atualizarBotao(); };
+    item.el = el; arquivos.push(item);
+    document.getElementById('miniaturas').appendChild(el);
+  });
+  atualizarBotao();
+}
+function atualizarBotao(){ document.getElementById('btnLer').disabled = !arquivos.some(a => a.status !== 'ok'); }
+function status(item, txt, cls){ const s = item.el.querySelector('.st'); s.textContent = txt; s.className = 'st ' + (cls||''); }
+
+document.getElementById('btnLer').onclick = async () => {
+  const pend = arquivos.filter(a => a.status !== 'ok');
+  document.getElementById('btnLer').disabled = true;
+  let feitos = 0; const obs = [];
+  const prog = () => document.getElementById('progresso').textContent = `Lendo ${feitos}/${pend.length} imagens…`;
+  prog();
+  // Uma imagem por chamada: leitura mais precisa e o progresso aparece aos poucos.
+  const trabalhar = async () => {
+    while (pend.length) {
+      const item = pend.shift(); status(item, 'lendo…');
+      const fd = new FormData(); fd.append('imagens', item.file, item.file.name || 'colada.png');
+      try {
+        const r = await fetch('/api/ler', {method:'POST', body: fd});
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.erro);
+        item.status = 'ok'; status(item, `${j.clientes.length} cliente(s) lido(s)`, 'ok');
+        mesclar(j.clientes); if (j.observacao) obs.push(j.observacao);
+      } catch (e) { item.status = 'erro'; status(item, 'Erro: ' + e.message, 'err'); }
+      feitos++; prog(); desenhar(obs);
+    }
+  };
+  const total = pend.length;
+  await Promise.all([trabalhar(), trabalhar()]);
+  document.getElementById('progresso').textContent = `Pronto: ${total} imagem(ns) processada(s).`;
+  atualizarBotao();
+};
+
+const soDig = t => (t||'').replace(/\D/g,'');
+function telValido(t){ let d = soDig(t).replace(/^0+/,''); if (d.length===10||d.length===11) d='55'+d; return (d.length===12||d.length===13) && d.startsWith('55'); }
+function mesclar(novos){
+  novos.forEach(c => {
+    const d = soDig(c.telefone).slice(-9);
+    if (d && lidos.some(x => soDig(x.telefone).slice(-9) === d)) return;  // mesma pessoa em duas fotos
+    c.incluir = true; lidos.push(c);
+  });
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const PRODUTOS = ['', 'auto', 'imóvel', 'moto', 'pesados', 'serviços'];
+function desenhar(obs){
+  document.getElementById('revisao').hidden = !lidos.length;
+  document.getElementById('qtd').textContent = lidos.length + ' encontrados';
+  const o = document.getElementById('obs'); const t = (obs||[]).filter(Boolean).join(' ');
+  o.hidden = !t; o.textContent = 'Observação da leitura: ' + t;
+  document.querySelector('#tabela tbody').innerHTML = lidos.map((c, i) => `<tr>
+    <td><input type="checkbox" data-i="${i}" data-k="incluir" ${c.incluir?'checked':''}></td>
+    <td><input data-i="${i}" data-k="nome" value="${esc(c.nome)}" style="min-width:170px"></td>
+    <td><input data-i="${i}" data-k="telefone" value="${esc(c.telefone)}" class="${telValido(c.telefone)?'':'tel-ruim'}" style="width:140px" title="${telValido(c.telefone)?'':'Telefone incompleto ou ilegível'}"></td>
+    <td><input data-i="${i}" data-k="email" value="${esc(c.email)}" style="min-width:150px"></td>
+    <td><input data-i="${i}" data-k="cidade" value="${esc(c.cidade)}" style="width:110px"></td>
+    <td><select data-i="${i}" data-k="produto">${PRODUTOS.map(p=>`<option ${p===c.produto?'selected':''}>${p}</option>`).join('')}</select></td>
+    <td><input data-i="${i}" data-k="valor_credito" value="${esc(c.valor_credito)}" style="width:100px"></td>
+    <td><input data-i="${i}" data-k="situacao_bb" value="${esc(c.situacao_bb)}" style="min-width:150px"></td>
+    <td><span class="conf ${esc(c.confianca)}">${esc(c.confianca||'')}</span>${c.ja_existe?'<br><span class="tag" title="Já está no CRM — os dados serão atualizados">já cadastrado</span>':''}</td>
+  </tr>`).join('');
+}
+document.querySelector('#tabela').addEventListener('input', ev => {
+  const el = ev.target, i = el.dataset.i, k = el.dataset.k; if (i === undefined) return;
+  lidos[i][k] = el.type === 'checkbox' ? el.checked : el.value;
+  if (k === 'telefone') el.classList.toggle('tel-ruim', !telValido(el.value));
+});
+function marcarTodos(v){ lidos.forEach(c => c.incluir = v); desenhar(); }
+
+document.getElementById('btnSalvar').onclick = async () => {
+  const sel = lidos.filter(c => c.incluir);
+  if (!sel.length) return alert('Nenhum cliente marcado.');
+  const btn = document.getElementById('btnSalvar'); btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const j = await api('/api/importar', {clientes: sel, descricao: document.getElementById('descricao').value,
+      qtd_imagens: arquivos.filter(a => a.status === 'ok').length});
+    document.getElementById('revisao').hidden = true;
+    const f = document.getElementById('final'); f.hidden = false;
+    f.innerHTML = `<div class="aviso ok">${j.novos} cliente(s) novo(s) e ${j.atualizados} atualizado(s) no lote #${j.lote_id}.</div>
+      <p class="muted" style="margin-top:0">A IA já está escrevendo a primeira mensagem de cada cliente desta lista. Em alguns minutos elas aparecem na fila.</p>
+      <div class="linha"><a class="btn pri" href="/fila">Ir para a fila</a><a class="btn" href="/importar">Importar outra lista</a></div>`;
+  } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = 'Salvar clientes selecionados'; }
+};
+</script>
+{% endblock %}

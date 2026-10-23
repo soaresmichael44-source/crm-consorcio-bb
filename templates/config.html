@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block titulo %}Configurações{% endblock %}
+{% block corpo %}
+<h1>Configurações</h1>
+<p class="sub">Como a operação BB aborda e persegue os clientes.</p>
+{% if request.args.ok %}<div class="aviso ok">Configurações salvas.</div>{% endif %}
+
+<div class="grid g4" style="margin-bottom:18px">
+  <div class="card"><strong>IA (Gemini)</strong><br><span class="{{ 'muted' }}">{{ 'Conectada' if ia_ok else 'Sem chave' }}</span></div>
+  <div class="card"><strong>E-mail (Brevo)</strong><br><span class="muted">{{ 'Configurado' if brevo_ok else 'Falta BREVO_API_KEY no .env' }}</span></div>
+  <div class="card"><strong>API para o n8n</strong><br><span class="muted">{{ 'Token configurado' if api_token else 'Falta CRM_BB_API_TOKEN no .env' }}</span></div>
+</div>
+
+<form method="post" class="card">
+  <div class="aviso {{ 'erro' if cfg.envio_automatico == '1' else 'ok' }}" style="margin-bottom:18px">
+    <label style="display:flex;gap:10px;align-items:center;font-size:15px;color:inherit;margin:0">
+      <input type="checkbox" name="envio_automatico" value="1" style="width:auto" {{ 'checked' if cfg.envio_automatico == '1' }}>
+      <strong>Envio automático {{ 'LIGADO' if cfg.envio_automatico == '1' else 'desligado' }}</strong></label>
+    <div style="font-size:13px;margin-top:6px">{% if cfg.envio_automatico == '1' %}O sistema manda WhatsApp (modo robô) e e-mail sozinho, dentro do horário e do limite diário.{% else %}Nada é enviado sozinho. As mensagens ficam prontas na fila; só sai o que você mesmo enviar.{% endif %}</div>
+  </div>
+  <h2>Identificação nas mensagens</h2>
+  <div class="grid g2">
+    <div><label>Seu nome</label><input name="nome_consultor" value="{{ cfg.nome_consultor }}"></div>
+    <div><label>Empresa (representante autorizado do Consórcio BB)</label><input name="nome_empresa" value="{{ cfg.nome_empresa }}"></div>
+  </div>
+
+  <h2 style="margin-top:22px">WhatsApp</h2>
+  <div class="grid g2">
+    <div><label>Modo de envio</label>
+      <select name="modo_whatsapp">
+        <option value="manual" {{ 'selected' if cfg.modo_whatsapp == 'manual' }}>Manual — a IA escreve, você clica e envia (recomendado para começar)</option>
+        <option value="ponte" {{ 'selected' if cfg.modo_whatsapp == 'ponte' }}>Automático — o robô envia sozinho ({{ url_ponte }})</option>
+      </select></div>
+    <div><label>Limite de mensagens por dia</label><input name="max_envios_dia" type="number" min="1" value="{{ cfg.max_envios_dia }}"></div>
+    <div><label>Horário de envio — início (h)</label><input name="hora_inicio" type="number" min="0" max="23" value="{{ cfg.hora_inicio }}"></div>
+    <div><label>Horário de envio — fim (h)</label><input name="hora_fim" type="number" min="1" max="24" value="{{ cfg.hora_fim }}"></div>
+  </div>
+
+  <h2 style="margin-top:22px">Cadência de follow-up</h2>
+  <div class="grid g2">
+    <div><label>Dias de cada contato, contando do 1º</label><input name="cadencia_dias" value="{{ cfg.cadencia_dias }}"></div>
+    <div><label>Depois disso, repetir a cada (dias)</label><input name="intervalo_final" type="number" min="1" value="{{ cfg.intervalo_final }}"></div>
+  </div>
+  <p class="muted" style="font-size:12px">Padrão 0,1,3,7,14,21,30 = mensagem no dia da importação, depois 1, 3, 7, 14, 21 e 30 dias, e daí a cada 15 dias até o cliente comprar, ser marcado como perdido ou responder SAIR.</p>
+
+  <h2 style="margin-top:22px">E-mail</h2>
+  <label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--texto)"><input type="checkbox" name="email_ativo" value="1" style="width:auto" {{ 'checked' if cfg.email_ativo == '1' }}>
+    Mandar e-mail automático (reforço no modo robô; canal único para quem não tem telefone)</label>
+  <div style="margin-top:18px"><button class="btn pri">Salvar</button></div>
+</form>
+
+<div class="card" id="gerentes">
+  <h2>Gerentes do banco (envio de listas pelo celular)</h2>
+  <p class="muted" style="margin-top:0">Cada gerente recebe um link próprio. Ele abre no celular, tira a foto da lista e os contatos caem direto aqui, já na fila. Pelo link ele não vê nenhum cliente nem nada do CRM. Se desativar, o link para de funcionar na hora.</p>
+  {% if not url_gerente %}<div class="aviso">O app do gerente ainda não está publicado na internet. Os links abaixo só funcionam neste Mac até ele ser publicado.</div>{% endif %}
+  <form method="post" action="/gerentes/novo" class="linha" style="margin-bottom:16px">
+    <input name="nome" placeholder="Nome do gerente" required style="flex:2;min-width:180px">
+    <input name="agencia" placeholder="Agência (opcional)" style="flex:1;min-width:120px">
+    <button class="btn am">Criar acesso</button>
+  </form>
+  {% set base = url_gerente or 'http://localhost:8096' %}
+  {% for g in gerentes %}
+    {% set link = base ~ '/g/' ~ g.token %}
+    <div style="padding:14px 0;border-top:1px solid var(--borda);{{ '' if g.ativo else 'opacity:.5' }}">
+      <div class="linha">
+        <strong>{{ g.nome }}</strong>{% if g.agencia %}<span class="muted">ag. {{ g.agencia }}</span>{% endif %}
+        <span class="tag">{{ g.contatos }} contato(s) enviados</span>
+        {% if g.ultimo_envio %}<span class="muted" style="font-size:12px">último envio {{ g.ultimo_envio|data }}</span>{% endif %}
+        <span class="sp"></span>
+        <form method="post" action="/gerentes/{{ g.id }}/ativo" style="margin:0" {% if g.ativo %}onsubmit="return confirm('Desativar o acesso de {{ g.nome }}? O link para de funcionar na hora.')"{% endif %}>
+          <button class="btn peq">{{ 'Desativar' if g.ativo else 'Reativar (gera link novo)' }}</button></form>
+      </div>
+      {% if g.ativo %}
+      <div class="linha" style="margin-top:8px;align-items:flex-start">
+        <div class="qr" data-link="{{ link }}" style="background:#fff;padding:6px;border:1px solid var(--borda);border-radius:8px"></div>
+        <div style="flex:1;min-width:220px">
+          <input readonly value="{{ link }}" onclick="this.select()" style="font-size:12px">
+          <div class="linha" style="margin-top:8px">
+            <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ link }}');this.textContent='Copiado!'">Copiar link</button>
+            <a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/?text={{ ('Olá, ' ~ g.nome ~ '! Este é o seu acesso para me enviar as listas do Consórcio BB: abra no celular, toque em “Tirar foto da lista” e depois em “Enviar”. Dica: no navegador, use “Adicionar à tela de início” para virar um app. ' ~ link)|urlencode }}">Mandar link pelo WhatsApp</a>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  {% else %}<p class="muted">Nenhum gerente cadastrado ainda.</p>{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+document.querySelectorAll('.qr').forEach(el => { try { new QRCode(el, {text: el.dataset.link, width: 96, height: 96}); } catch (e) { el.remove(); } });
+</script>
+{% endblock %}

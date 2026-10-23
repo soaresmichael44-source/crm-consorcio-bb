@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block titulo %}{{ c.nome }}{% endblock %}
+{% block corpo %}
+<a href="/clientes" class="muted">← Clientes</a>
+<div class="linha" style="margin:8px 0 18px">
+  <h1 style="margin:0">{{ c.nome }}</h1><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span>
+  {% if c.pausado %}<span class="tag">cadência pausada</span>{% endif %}
+  <span class="sp"></span><a class="btn peq" href="/documentos?cliente={{ c.id }}">📄 Enviar documentos ao gerente</a>
+</div>
+
+<div class="grid g2" style="align-items:start">
+  <div>
+    <div class="card">
+      <h2>Dados do cliente</h2>
+      <div class="grid g2">
+        <div><label>Nome</label><input data-k="nome" value="{{ c.nome }}"></div>
+        <div><label>Telefone</label><input data-k="telefone" value="{{ fmt_tel(c.telefone) }}"></div>
+        <div><label>E-mail</label><input data-k="email" value="{{ c.email or '' }}"></div>
+        <div><label>CPF</label><input data-k="cpf" value="{{ fmt_cpf(c.cpf) }}" placeholder="000.000.000-00" inputmode="numeric"></div>
+        <div><label>Cidade</label><input data-k="cidade" value="{{ c.cidade or '' }}"></div>
+        <div><label>Produto</label><input data-k="produto" value="{{ c.produto or '' }}"></div>
+        <div><label>Crédito pretendido</label><input disabled value="{{ c.valor_credito|dinheiro }}"></div>
+      </div>
+      <div style="margin-top:10px"><label>Situação na lista do BB</label><input data-k="situacao_bb" value="{{ c.situacao_bb or '' }}"></div>
+      <div style="margin-top:10px"><label>Observações</label><textarea data-k="observacoes" rows="2">{{ c.observacoes or '' }}</textarea></div>
+      {% if extras %}<div style="margin-top:10px"><label>Outras colunas da lista</label>
+        {% for k, v in extras.items() %}<div class="muted">{{ k }}: {{ v }}</div>{% endfor %}</div>{% endif %}
+      <div class="linha" style="margin-top:12px"><button class="btn pri" id="btnSalvar">Salvar dados</button><span id="stDados" class="muted"></span></div>
+    </div>
+    <div class="card">
+      <h2>Andamento</h2>
+      <div class="grid g2">
+        <div><label>Etapa</label><select id="etapa">{% for k, n in ETAPAS %}<option value="{{ k }}" {{ 'selected' if k == c.etapa }}>{{ n }}</option>{% endfor %}</select></div>
+        <div><label>Próximo follow-up</label><input type="datetime-local" id="prox" value="{{ (c.proximo_contato or '')[:16].replace(' ', 'T') }}"></div>
+      </div>
+      <p class="muted" style="font-size:12px">{{ c.tentativas }} contato(s) feito(s){% if c.ultimo_contato %} · último em {{ c.ultimo_contato|data }}{% endif %}. A cadência segue {{ cfg.cadencia_dias }} dias e depois a cada {{ cfg.intervalo_final }} dias até vender, perder ou o cliente pedir para sair.</p>
+      <div class="linha">
+        <button class="btn pri" id="btnAndamento">Salvar andamento</button>
+        <button class="btn" id="btnPausa">{{ 'Retomar cadência' if c.pausado else 'Pausar cadência' }}</button>
+        <span id="stAnd" class="muted"></span>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Próxima mensagem (contato nº {{ c.tentativas + 1 }})</h2>
+      <textarea id="txt" rows="7" placeholder="Clique em Redigir">{{ c.rascunho or '' }}</textarea>
+      <div class="linha" style="margin-top:8px">
+        <button class="btn" id="btnRedigir">{{ 'Reescrever' if c.rascunho else 'Redigir com IA' }}</button>
+        {% if c.telefone %}<button class="btn wa" id="btnWa">Abrir no WhatsApp e marcar enviado</button>{% endif %}
+        {% if c.telefone and cfg.modo_whatsapp == 'ponte' %}<button class="btn" id="btnAuto">Enviar pelo robô</button>{% endif %}
+      </div>
+      <div id="stMsg" class="muted" style="margin-top:6px"></div>
+    </div>
+    <div class="card">
+      <h2>Registrar</h2>
+      <textarea id="nota" rows="3" placeholder="Cole aqui a resposta do cliente ou escreva uma anotação"></textarea>
+      <div class="linha" style="margin-top:8px">
+        <button class="btn" onclick="nota('resposta')">É resposta do cliente</button>
+        <button class="btn" onclick="nota('nota')">É anotação interna</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin-bottom:0">Se a resposta for “SAIR”, o cliente vai para “Pediu para não receber” e a cadência para.</p>
+    </div>
+    {% if pacotes %}
+    <div class="card" style="border:2px solid #f1df9a">
+      <h2>Documentação</h2>
+      {% for p in pacotes %}
+      <div style="padding:8px 0;border-top:1px solid var(--borda)">
+        <div class="linha"><strong>{{ 'Cliente enviou a documentação ao gerente' if p.origem == 'cliente' else 'Você enviou documentos ao gerente' }}</strong>
+          <span class="muted">→ {{ p.gerente }} · {{ p.criado_em|data }}</span><span class="sp"></span>
+          {% if p.recebido_em %}<span class="tag respondeu">gerente confirmou</span>{% elif p.visto_em %}<span class="tag contatado">gerente viu</span>{% else %}<span class="tag">aguardando o gerente</span>{% endif %}</div>
+        {% if docs[p.id] %}<div class="linha" style="margin-top:6px">{% for d in docs[p.id] %}<a class="btn peq" href="/documentos/arquivo/{{ d.id }}" target="_blank">{{ d.nome }}</a>{% endfor %}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="card">
+      <h2>Histórico</h2>
+      {% for i in interacoes %}
+        <div style="padding:8px 0;border-bottom:1px solid var(--borda)">
+          <div class="linha"><span class="tag">{{ i.canal }}{% if i.direcao == 'entrada' %} · cliente{% elif i.direcao == 'saida' %} · enviada{% endif %}</span>
+            {% if i.status %}<span class="muted" style="font-size:11px">{{ i.status }}</span>{% endif %}
+            <span class="sp"></span><span class="muted">{{ i.criado_em|data }}</span></div>
+          {% if i.assunto %}<div><strong>{{ i.assunto }}</strong></div>{% endif %}
+          <div style="white-space:pre-wrap;margin-top:4px">{{ i.texto }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const CID = {{ c.id }};
+const set = (id, t) => document.getElementById(id).textContent = t;
+document.getElementById('btnSalvar').onclick = async () => {
+  const d = {}; document.querySelectorAll('[data-k]').forEach(el => d[el.dataset.k] = el.value);
+  try { await api(`/api/cliente/${CID}/atualizar`, d); set('stDados', 'Salvo.'); } catch(e){ set('stDados', e.message); }
+};
+document.getElementById('btnAndamento').onclick = async () => {
+  try { await api(`/api/cliente/${CID}/atualizar`, {etapa: etapa.value, proximo_contato: prox.value}); location.reload(); }
+  catch(e){ set('stAnd', e.message); }
+};
+document.getElementById('btnPausa').onclick = async () => { await api(`/api/cliente/${CID}/atualizar`, {pausado: {{ 'false' if c.pausado else 'true' }}}); location.reload(); };
+document.getElementById('btnRedigir').onclick = async () => {
+  set('stMsg', 'A IA está escrevendo…');
+  try { const j = await api(`/api/cliente/${CID}/rascunho`); txt.value = j.texto; set('stMsg', ''); } catch(e){ set('stMsg', 'Erro: ' + e.message); }
+};
+const wa = document.getElementById('btnWa');
+if (wa) wa.onclick = async () => {
+  if (!txt.value.trim()) return set('stMsg', 'Escreva ou redija a mensagem primeiro.');
+  const w = window.open('about:blank', '_blank');
+  try { const j = await api(`/api/cliente/${CID}/enviado`, {texto: txt.value.trim()}); w.location = j.link; setTimeout(() => location.reload(), 800); }
+  catch(e){ w.close(); set('stMsg', e.message); }
+};
+const au = document.getElementById('btnAuto');
+if (au) au.onclick = async () => {
+  set('stMsg', 'Enviando…');
+  try { await api(`/api/cliente/${CID}/enviar-auto`, {texto: txt.value.trim()}); location.reload(); } catch(e){ set('stMsg', e.message); }
+};
+async function nota(tipo){
+  const t = document.getElementById('nota').value.trim(); if (!t) return;
+  await api(`/api/cliente/${CID}/nota`, {texto: t, tipo}); location.reload();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}CRM BB{% endblock %} · Consórcio BB</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --azul:#16245c; --azul-2:#22367f; --amarelo:#f8d936; --fundo:#f3f5fa; --card:#fff;
+  --texto:#18203a; --suave:#5b6584; --borda:#e1e5f0; --verde:#13865a; --vermelho:#c23a3a; --laranja:#c77612;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--fundo);color:var(--texto);font-size:14px}
+a{color:var(--azul-2);text-decoration:none}
+.app{display:flex;min-height:100vh}
+nav.lado{width:220px;background:var(--azul);color:#fff;padding:22px 14px;flex-shrink:0;position:sticky;top:0;height:100vh}
+.marca{font-weight:700;font-size:17px;padding:0 10px 22px;line-height:1.25}
+.marca small{display:block;font-weight:500;font-size:11px;color:var(--amarelo);letter-spacing:.06em;text-transform:uppercase;margin-top:4px}
+nav.lado a{display:flex;gap:10px;align-items:center;color:#c9d2f2;padding:10px 12px;border-radius:8px;margin-bottom:2px;font-weight:500}
+nav.lado a:hover{background:rgba(255,255,255,.07);color:#fff}
+nav.lado a.ativo{background:var(--amarelo);color:var(--azul)}
+nav.lado .badge{margin-left:auto;background:var(--amarelo);color:var(--azul);border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700}
+nav.lado a.ativo .badge{background:var(--azul);color:#fff}
+main{flex:1;padding:28px 34px;max-width:1280px;min-width:0}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--suave);margin:0 0 22px}
+.card{background:var(--card);border:1px solid var(--borda);border-radius:12px;padding:18px 20px;margin-bottom:18px}
+.card h2{font-size:15px;margin:0 0 12px}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.g2{grid-template-columns:1fr 1fr}
+.kpi .n{font-size:28px;font-weight:700}
+.kpi .l{color:var(--suave);font-size:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--borda);background:#fff;color:var(--texto);padding:8px 14px;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.btn:hover{border-color:var(--azul-2)}
+.btn.pri{background:var(--azul);border-color:var(--azul);color:#fff}
+.btn.pri:hover{background:var(--azul-2)}
+.btn.wa{background:#1f9d55;border-color:#1f9d55;color:#fff}
+.btn.am{background:var(--amarelo);border-color:var(--amarelo);color:var(--azul)}
+.btn.peq{padding:5px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:default}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--borda);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--suave);font-weight:600}
+tr:hover td{background:#fafbfe}
+.tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;background:#eef1f8;color:var(--suave);white-space:nowrap}
+.tag.novo{background:#e8eefe;color:#2d4bc2}.tag.contatado{background:#fff4d6;color:#8a6200}
+.tag.respondeu{background:#dff6ec;color:var(--verde)}.tag.negociando{background:#d9f0ff;color:#0a6aa1}
+.tag.documentacao{background:#fff1c2;color:#7a5a00}
+.tag.vendido{background:var(--verde);color:#fff}.tag.perdido{background:#f3e3e3;color:var(--vermelho)}
+.tag.optout{background:#333;color:#fff}
+input,select,textarea{font:inherit;border:1px solid var(--borda);border-radius:8px;padding:8px 10px;background:#fff;color:var(--texto);width:100%}
+textarea{resize:vertical}
+label{font-size:12px;color:var(--suave);font-weight:600;display:block;margin-bottom:4px}
+.aviso{padding:10px 14px;border-radius:8px;background:#fff8dc;border:1px solid #f1df9a;color:#6b5200;margin-bottom:16px}
+.ok{background:#e4f7ee;border-color:#a8e0c4;color:#0d6b47}
+.erro{background:#fbe9e9;border-color:#efb8b8;color:#8f2525}
+.muted{color:var(--suave)}
+.linha{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sp{flex:1}
+@media (max-width:860px){
+  .app{flex-direction:column} nav.lado{width:auto;height:auto;position:static;display:flex;flex-wrap:wrap;gap:4px;padding:12px}
+  .marca{width:100%;padding-bottom:8px} main{padding:18px 16px} .g2{grid-template-columns:1fr}
+  .tabela-scroll{overflow-x:auto}
+}
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<div class="app">
+<nav class="lado">
+  <div class="marca">CRM Consórcio BB<small>Operação Banco do Brasil</small></div>
+  {% set p = request.path %}
+  <a href="/" class="{{ 'ativo' if p == '/' }}">Painel</a>
+  <a href="/importar" class="{{ 'ativo' if p.startswith('/importar') }}">Importar listas</a>
+  <a href="/fila" class="{{ 'ativo' if p.startswith('/fila') }}">Fila de follow-up</a>
+  <a href="/clientes" class="{{ 'ativo' if p.startswith('/cliente') }}">Clientes</a>
+  <a href="/documentos" class="{{ 'ativo' if p.startswith('/documentos') }}">Documentos p/ gerente</a>
+  <a href="/config" class="{{ 'ativo' if p.startswith('/config') }}">Configurações</a>
+</nav>
+<main>{% block corpo %}{% endblock %}</main>
+</div>
+<script>
+async function api(url, dados){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(dados||{})});
+  const j = await r.json().catch(()=>({erro:'Resposta inválida do servidor'}));
+  if(!r.ok) throw new Error(j.erro || ('Erro '+r.status));
+  return j;
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

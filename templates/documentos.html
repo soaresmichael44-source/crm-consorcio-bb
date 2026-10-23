@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block titulo %}Documentos para o gerente{% endblock %}
+{% block corpo %}
+<h1>Documentos para o gerente</h1>
+<p class="sub">Para clientes novos que você leva ao banco: anexe os documentos aqui e eles aparecem no Portal do Gerente, sem passar pelo WhatsApp.</p>
+{% if request.args.ok %}<div class="aviso ok">Documentos enviados. O gerente vê na aba Documentos do portal dele.</div>{% endif %}
+{% if request.args.erro %}<div class="aviso erro">{{ request.args.erro }}</div>{% endif %}
+
+{% for l in links_cliente %}
+<div class="card" style="border:2px solid var(--amarelo)">
+  <h2 style="margin-bottom:4px">📩 Link para o cliente mandar os documentos direto ao gerente</h2>
+  <p class="muted" style="margin-top:0">Mande este link para o cliente. Ele abre no celular, tira foto ou anexa o PDF do documento com foto, do comprovante de renda e do de endereço, e tudo cai na aba Documentos de <strong>{{ l.gerente.nome }}</strong>. O cliente não vê mais nada além dessa página.</p>
+  {% if not url_publica %}<div class="aviso" style="margin-bottom:10px">Este link só abre fora deste Mac enquanto o link público estiver aberto (até o sistema ir para a nuvem).</div>{% endif %}
+  <div class="linha" style="align-items:flex-start">
+    <div class="qr" data-link="{{ l.url }}" style="background:#fff;padding:6px;border:1px solid var(--borda);border-radius:8px"></div>
+    <div style="flex:1;min-width:240px">
+      <input readonly value="{{ l.url }}" onclick="this.select()" style="font-size:12px">
+      <div class="linha" style="margin-top:8px">
+        <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ l.url }}');this.textContent='Copiado!'">Copiar link</button>
+        <a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/?text={{ ('Olá! Para agilizar a sua proposta do Consórcio BB, envie seus documentos por este link (leva menos de 2 minutos): documento com foto, comprovante de renda e comprovante de endereço. Eles vão direto para o gerente que vai te atender. ' ~ l.url)|urlencode }}">Mandar pelo WhatsApp</a>
+        <a class="btn peq" href="{{ l.url }}" target="_blank" rel="noopener">Ver como o cliente vê</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% if not gerentes %}
+<div class="aviso">Cadastre o gerente primeiro em <a href="/config#gerentes">Configurações → Gerentes do banco</a>.</div>
+{% else %}
+<form class="card" method="post" action="/documentos/enviar" enctype="multipart/form-data">
+  <h2>Mandar documentos</h2>
+  {% if gerentes|length == 1 %}<input type="hidden" name="gerente_id" value="{{ gerentes[0].id }}">
+  <p class="muted" style="margin-top:0">Vai para <strong>{{ gerentes[0].nome }}</strong>{% if gerentes[0].agencia %} · ag. {{ gerentes[0].agencia }}{% endif %}.</p>
+  {% else %}<div style="margin-bottom:10px"><label>Para qual gerente</label>
+    <select name="gerente_id" required>{% for g in gerentes %}<option value="{{ g.id }}">{{ g.nome }}{% if g.agencia %} · ag. {{ g.agencia }}{% endif %}</option>{% endfor %}</select></div>{% endif %}
+  {% if cliente_sel %}<input type="hidden" name="cliente_id" value="{{ cliente_sel.id }}">{% endif %}
+  <div class="grid g2">
+    <div><label>Nome do cliente</label><input name="cliente_nome" required value="{{ cliente_sel.nome if cliente_sel else '' }}" placeholder="Ex.: Ana Paula Ribeiro"></div>
+    <div><label>Produto (opcional)</label><input name="produto" value="{{ (cliente_sel.produto or '') if cliente_sel else '' }}" placeholder="auto, imóvel, moto…"></div>
+  </div>
+  <div style="margin-top:10px"><label>Documentos (PDF, foto ou Word · vários de uma vez)</label>
+    <input type="file" name="arquivos" multiple required accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.doc,.docx,image/*,application/pdf"></div>
+  <div style="margin-top:10px"><label>Recado para o gerente (opcional)</label>
+    <textarea name="observacao" rows="2" placeholder="Ex.: quer abrir conta e já fechar o consórcio de imóvel na mesma visita"></textarea></div>
+  <div style="margin-top:14px"><button class="btn am">Mandar para o gerente</button></div>
+</form>
+{% endif %}
+
+<div class="card">
+  <h2>Enviados</h2>
+  {% for p in pacotes %}
+  <div style="padding:12px 0;border-top:1px solid var(--borda)">
+    <div class="linha">
+      <strong>{% if p.cliente_id %}<a href="/cliente/{{ p.cliente_id }}">{{ p.cliente_nome }}</a>{% else %}{{ p.cliente_nome }}{% endif %}</strong>
+      {% if p.origem == 'cliente' %}<span class="tag respondeu">📩 enviado pelo cliente{% if p.cliente_telefone %} · {{ fmt_tel(p.cliente_telefone) }}{% endif %}</span>{% endif %}
+      {% if p.produto %}<span class="tag">{{ p.produto }}</span>{% endif %}
+      <span class="muted">→ {{ p.gerente }} · {{ p.criado_em|data }}</span>
+      <span class="sp"></span>
+      {% if p.recebido_em %}<span class="tag respondeu">recebido {{ p.recebido_em|data }}</span>
+      {% elif p.visto_em %}<span class="tag contatado">visto {{ p.visto_em|data }}</span>
+      {% else %}<span class="tag">aguardando o gerente abrir</span>{% endif %}
+    </div>
+    {% if p.observacao %}<div class="muted" style="margin-top:4px">“{{ p.observacao }}”</div>{% endif %}
+    <div class="linha" style="margin-top:6px">
+      {% if p.origem == 'cliente' %}<span class="muted" style="font-size:12px">{{ p.qtd }} arquivo(s) com o gerente, no portal dele.</span>
+      {% else %}{% for d in docs.get(p.id, []) %}<a class="btn peq" href="/documentos/arquivo/{{ d.id }}" target="_blank">📄 {{ d.nome }}{% if d.baixado_em %} ✓{% endif %}</a>{% endfor %}{% endif %}
+    </div>
+  </div>
+  {% else %}<p class="muted">Nenhum documento enviado ainda.</p>{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+document.querySelectorAll('.qr').forEach(el => { try { new QRCode(el, {text: el.dataset.link, width: 110, height: 110}); } catch (e) { el.remove(); } });
+</script>
+{% endblock %}
+

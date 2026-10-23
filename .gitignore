@@ -1,0 +1,15 @@
+# segredos
+.env
+.env.nuvem
+# dados de clientes: nunca vão para o GitHub
+crm_bb.db*
+uploads/
+documentos/
+backups/
+logs/
+demo/*.db*
+demo/documentos_demo/
+demo/*.html
+__pycache__/
+.DS_Store
+n8n/

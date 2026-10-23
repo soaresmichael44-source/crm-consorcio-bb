@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#16245c">
+<title>Entrar · CRM Consórcio BB</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#16245c;font-family:Inter,system-ui,sans-serif;padding:16px;box-sizing:border-box}
+form{background:#fff;border-radius:16px;padding:28px 24px;width:100%;max-width:360px;box-sizing:border-box}
+h1{margin:0 0 4px;font-size:20px;color:#16245c}
+p{margin:0 0 20px;color:#5b6584;font-size:14px}
+input{width:100%;box-sizing:border-box;font:inherit;font-size:16px;border:1px solid #e1e5f0;border-radius:10px;padding:12px}
+button{width:100%;margin-top:14px;background:#f8d936;color:#16245c;border:0;border-radius:10px;padding:14px;font:inherit;font-weight:700;font-size:16px}
+.erro{background:#fbe9e9;color:#8f2525;border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<form method="post">
+  <h1>CRM Consórcio BB</h1>
+  <p>Operação Banco do Brasil</p>
+  {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+  <input type="hidden" name="proximo" value="{{ proximo }}">
+  <input type="password" name="senha" placeholder="Senha" autocomplete="current-password" autofocus required>
+  <button>Entrar</button>
+</form>
+</body>
+</html>
