@@ -38,12 +38,19 @@ def garantir_bucket():
 
 
 def _pasta_local(area):
+    demo = db.usando_demo()
+    if demo:
+        return Path(demo["docs"]) if area == "documentos" else Path(demo["docs"]).parent / "uploads_demo"
     return db.PASTA_DOCS if area == "documentos" else db.BASE / area
+
+
+def _nuvem():
+    return NUVEM and not db.usando_demo()
 
 
 def salvar(area, caminho, dados, mime=None):
     """`area` = "documentos" ou "uploads"; `caminho` relativo à área."""
-    if NUVEM:
+    if _nuvem():
         r = requests.post(_url(f"{area}/{caminho}"), data=dados, timeout=120,
                           headers=_cabecalhos({"Content-Type": mime or "application/octet-stream", "x-upsert": "true"}))
         r.raise_for_status()
@@ -54,7 +61,7 @@ def salvar(area, caminho, dados, mime=None):
 
 
 def ler(area, caminho):
-    if NUVEM:
+    if _nuvem():
         r = requests.get(_url(f"{area}/{caminho}"), headers=_cabecalhos(), timeout=120)
         r.raise_for_status()
         return r.content

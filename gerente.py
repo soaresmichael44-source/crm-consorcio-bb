@@ -36,7 +36,13 @@ MAX_ENVIOS_POR_HORA = 20
 _envios = defaultdict(deque)  # token -> horários dos últimos envios
 # Demonstração (banco de exemplo): a comemoração aparece sempre e nenhuma
 # mensagem é preparada para os contatos enviados.
-DEMO = os.getenv("GERENTE_DEMO") == "1"
+DEMO_PROCESSO = os.getenv("GERENTE_DEMO") == "1"   # processo inteiro de demonstração (uso no Mac)
+TOKEN_DEMO = os.getenv("TOKEN_DEMO_GERENTE", "demonstracao-gerente-carlos-2026")
+PASTA_DEMO = Path(os.getenv("PASTA_DEMO", "/tmp/crm-bb-demo"))
+
+
+def _eh_demo():
+    return DEMO_PROCESSO or db.usando_demo() is not None
 if os.getenv("PASTA_DOCS"):
     db.PASTA_DOCS = Path(os.environ["PASTA_DOCS"])
 
@@ -62,6 +68,33 @@ def _limite_ok(token):
         return False
     fila.append(agora)
     return True
+
+
+def _montar_demo():
+    """Recria o banco de exemplo (gerente "Carlos", clientes fictícios) num processo à parte, sem
+    nenhuma variável da nuvem: nada disso encosta no banco real nem no Supabase."""
+    import subprocess, sys
+    PASTA_DEMO.mkdir(parents=True, exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_KEY")}
+    env.update(DEMO_DB=str(PASTA_DEMO / "gerente_demo.db"), DEMO_DOCS=str(PASTA_DEMO / "documentos_demo"))
+    subprocess.run([sys.executable, str(BASE / "demo" / "montar_demo_gerente.py")], env=env, cwd=str(BASE), check=True,
+                   capture_output=True, timeout=120)
+
+
+@app.before_request
+def _talvez_demo():
+    """O link de demonstração usa o banco de exemplo, refeito a cada 6 h para os horários ("há 20 min") seguirem vivos."""
+    db._banco_demo.set(None)  # nunca herdar a marca de um acesso anterior na mesma linha de execução
+    if TOKEN_DEMO and request.path.startswith((f"/g/{TOKEN_DEMO}", f"/manifest/{TOKEN_DEMO}")) and not DEMO_PROCESSO:
+        arq = PASTA_DEMO / "gerente_demo.db"
+        if not arq.exists() or time.time() - arq.stat().st_mtime > 6 * 3600:
+            _montar_demo()
+        db._banco_demo.set({"db": str(arq), "docs": str(PASTA_DEMO / "documentos_demo")})
+
+
+@app.teardown_request
+def _fim_demo(_erro=None):
+    db._banco_demo.set(None)
 
 
 @app.after_request
@@ -158,7 +191,7 @@ def pagina(token):
         for p in pacotes:
             p["docs"] = [dict(d) for d in conn.execute("SELECT * FROM documentos WHERE pacote_id = ? ORDER BY id", (p["id"],))]
             p["quando"] = _ha_quanto(p["criado_em"])
-        if not DEMO:
+        if not _eh_demo():
             conn.execute("UPDATE gerentes SET ultima_visita = ? WHERE id = ?", (db.agora(), g["id"]))
 
     ultima = g["ultima_visita"] or ""
@@ -227,7 +260,7 @@ def baixar_doc(token, doc_id):
             "WHERE d.id = ? AND p.gerente_id = ?", (doc_id, g["id"])).fetchone()
         if not d:
             abort(404)
-        if not DEMO:
+        if not _eh_demo():
             conn.execute("UPDATE documentos SET baixado_em = COALESCE(baixado_em, ?) WHERE id = ?", (db.agora(), doc_id))
     resp = send_file(io.BytesIO(armazenamento.ler("documentos", d["caminho"])), download_name=_nome_arquivo(d["cliente_nome"], d["nome"]),
                      mimetype=d["mime"] or "application/octet-stream", as_attachment=request.args.get("baixar") == "1")
@@ -242,7 +275,7 @@ def baixar_pacote(token, pacote_id):
     with db.conectar() as conn:
         p = _pacote_do_gerente(conn, g, pacote_id)
         docs = conn.execute("SELECT * FROM documentos WHERE pacote_id = ? ORDER BY id", (pacote_id,)).fetchall()
-        if not DEMO:
+        if not _eh_demo():
             conn.execute("UPDATE documentos SET baixado_em = COALESCE(baixado_em, ?) WHERE pacote_id = ?", (db.agora(), pacote_id))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -270,7 +303,7 @@ def novidades(token):
 @app.post("/g/<token>/docs/vistos")
 def docs_vistos(token):
     g = _gerente(token)
-    if not DEMO:
+    if not _eh_demo():
         with db.conectar() as conn:
             conn.execute("UPDATE pacotes_docs SET visto_em = ? WHERE gerente_id = ? AND visto_em IS NULL", (db.agora(), g["id"]))
     return jsonify(ok=True)
@@ -316,7 +349,7 @@ def contato_manual(token):
     with db.conectar() as conn:
         lote_id, novos, _ = db.importar_lote(conn, [cliente], f"Digitado pelo gerente · {g['nome']}", 0, gerente_id=g["id"])
         conn.execute("UPDATE gerentes SET ultimo_envio = ? WHERE id = ?", (db.agora(), g["id"]))
-    if not DEMO:
+    if not _eh_demo():
         sdr.processar_lote_em_segundo_plano(lote_id)
     return jsonify(ok=True, novo=bool(novos), nome=_primeiro_nome(nome.title()))
 
@@ -351,7 +384,7 @@ def enviar(token):
     with db.conectar() as conn:
         lote_id, novos, atualizados = db.importar_lote(conn, lidos, desc, len(imagens), gerente_id=g["id"])
         conn.execute("UPDATE gerentes SET ultimo_envio = ? WHERE id = ?", (db.agora(), g["id"]))
-    if not DEMO:
+    if not _eh_demo():
         sdr.processar_lote_em_segundo_plano(lote_id)
     sem_tel = sum(1 for c in lidos if not db.normalizar_telefone(c.get("telefone")))
     return jsonify(

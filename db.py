@@ -4,6 +4,7 @@ Com DATABASE_URL (nuvem, Postgres do Supabase) usa Postgres; sem ela, o SQLite
 deste Mac. O resto do sistema escreve SQL no dialeto do SQLite ("?" como
 parâmetro) e a classe _ConexaoPg traduz o pouco que muda.
 """
+import contextvars
 import json
 import os
 import re
@@ -231,7 +232,21 @@ class _ConexaoPg:
                 pass
 
 
+# Demonstração do Portal do Gerente: durante a requisição do link de demonstração, todo acesso
+# ao banco vai para um SQLite de exemplo (clientes fictícios), nunca para o banco real.
+_banco_demo = contextvars.ContextVar("banco_demo", default=None)
+
+
+def usando_demo():
+    return _banco_demo.get()
+
+
 def conectar():
+    demo = _banco_demo.get()
+    if demo:
+        conn = sqlite3.connect(demo["db"], timeout=30)
+        conn.row_factory = sqlite3.Row
+        return conn
     if PG:
         return _ConexaoPg()
     # Dois processos usam o banco (app.py e gerente.py): espera o lock em vez de falhar.

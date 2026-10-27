@@ -5,7 +5,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-DEMO_DB = Path(__file__).resolve().parent / "gerente_demo.db"
+DEMO_DB = Path(os.getenv("DEMO_DB") or Path(__file__).resolve().parent / "gerente_demo.db")
 for sufixo in ("", "-wal", "-shm"):
     Path(str(DEMO_DB) + sufixo).unlink(missing_ok=True)
 os.environ["CRM_BB_DB"] = str(DEMO_DB)
@@ -75,7 +75,7 @@ with db.conectar() as conn:
     # Gerente "visitou" há 3 horas: o que aconteceu depois aparece como NOVO e a venda de pouco atrás vira comemoração.
     conn.execute("UPDATE gerentes SET ultima_visita = ? WHERE id = ?",
                  ((datetime.now() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"), gid))
-    db.PASTA_DOCS = Path(__file__).resolve().parent / "documentos_demo"
+    db.PASTA_DOCS = Path(os.getenv("DEMO_DOCS") or Path(__file__).resolve().parent / "documentos_demo")
     import shutil
     shutil.rmtree(db.PASTA_DOCS, ignore_errors=True)
     def pacote(nome, produto, recado, arquivos, dias, visto=False, recebido=False):

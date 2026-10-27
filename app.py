@@ -58,6 +58,11 @@ db.iniciar()
 
 
 @app.before_request
+def _zerar_demo():
+    db._banco_demo.set(None)  # o CRM nunca usa o banco de demonstração do Portal
+
+
+@app.before_request
 def _exigir_login():
     """Neste Mac abre direto. De outro aparelho, ou sempre na nuvem, pede a senha (CRM_BB_SENHA)."""
     if DEMO or session.get("logado") or (not FORCAR_LOGIN and request.remote_addr in ("127.0.0.1", "::1")):
