@@ -48,6 +48,8 @@ FORCAR_LOGIN = os.getenv("FORCAR_LOGIN") == "1"
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", PERMANENT_SESSION_LIFETIME=30 * 86400,
                   SESSION_COOKIE_SECURE=FORCAR_LOGIN)
 SENHA = os.getenv("CRM_BB_SENHA", "")
+# Senha extra, só para apresentações: dá para apagar a variável no Render e ela para de valer na hora.
+SENHA_APRESENTACAO = os.getenv("CRM_BB_SENHA_APRESENTACAO", "")
 # Cópia de demonstração (banco vazio, link de teste): abre sem senha.
 DEMO = os.getenv("CRM_BB_DEMO") == "1"
 _tentativas = defaultdict(list)  # ip -> horários de senhas erradas
@@ -78,7 +80,7 @@ def login():
         _tentativas[ip] = [t for t in _tentativas[ip] if time.time() - t < 900]
         if len(_tentativas[ip]) >= 8:
             erro = "Muitas tentativas. Espere 15 minutos."
-        elif SENHA and secrets.compare_digest(request.form.get("senha", ""), SENHA):
+        elif any(x and secrets.compare_digest(request.form.get("senha", ""), x) for x in (SENHA, SENHA_APRESENTACAO)):
             session.permanent = True
             session["logado"] = True
             return redirect(proximo)
