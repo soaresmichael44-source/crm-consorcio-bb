@@ -130,6 +130,16 @@ MOVIMENTO = {
     "respondeu": ("✨", "respondeu e quer saber mais{p}"),
     "contatado": ("📲", "recebeu o primeiro contato"),
 }
+# Tipo da carta de consórcio, como o gerente fala na agência.
+TIPOS = {"imovel": ("🏠", "Imóvel"), "auto": ("🚗", "Automóvel"), "pesados": ("🚛", "Pesados"),
+         "moto": ("🏍️", "Moto"), "servicos": ("🎓", "Serviços")}
+
+
+def _tipo(produto):
+    chave = (produto or "").strip().lower().translate(str.maketrans("áâãéêíóôõúç", "aaaeeiooouc"))
+    return TIPOS.get(chave, ("💼", (produto or "Consórcio").capitalize()))
+
+
 PESO_CALOR = {"vendido": 4, "documentacao": 4, "negociando": 3, "respondeu": 2, "contatado": 1}
 
 
@@ -197,7 +207,9 @@ def pagina(token):
     ultima = g["ultima_visita"] or ""
 
     def _item(r):
-        return {"nome": _primeiro_nome(r["nome"]), "produto": r["produto"] or ""}
+        icone, tipo = _tipo(r["produto"])
+        return {"nome": _primeiro_nome(r["nome"]), "produto": r["produto"] or "", "tipo": tipo, "tipo_icone": icone,
+                "credito": r["valor_credito"] or 0}
 
     # Feed: o que andou na carteira, mais recente primeiro; "novo" = depois da última visita.
     movimentos = []
@@ -206,13 +218,13 @@ def pagina(token):
             icone, frase = MOVIMENTO[r["etapa"]]
             movimentos.append({**_item(r), "icone": icone, "etapa": r["etapa"],
                                "texto": frase.format(p=f" de {r['produto']}" if r["produto"] else ""),
+                               "valor": r["valor_credito"] or 0,
                                "quando": _ha_quanto(r["atualizado_em"]), "novo": r["atualizado_em"] > ultima})
-    movimentos = movimentos[:8]
+    movimentos = movimentos[:10]
     vendas_novas = [m["nome"] for m in movimentos if m["novo"] and m["etapa"] == "vendido"]
-    na_mesa = [{**_item(r), "etapa": r["etapa"], "quando": _ha_quanto(r["atualizado_em"]),
-                "credito": r["valor_credito"] or 0}
+    na_mesa = [{**_item(r), "etapa": r["etapa"], "quando": _ha_quanto(r["atualizado_em"])}
                for r in sorted(rows, key=lambda r: r["etapa"] != "documentacao")
-               if r["etapa"] in ("documentacao", "negociando", "respondeu")][:6]
+               if r["etapa"] in ("documentacao", "negociando", "respondeu")][:8]
     grupos = []
     for etapas, chave, titulo in ETAPAS_GERENTE:
         itens = sorted((_item(r) for r in rows if r["etapa"] in etapas), key=lambda c: c["nome"])
@@ -221,6 +233,25 @@ def pagina(token):
     regua = [g_["chave"] for g_ in grupos for _ in g_["itens"]]
     vendidos = [r for r in rows if r["etapa"] == "vendido"]
     temperatura, clima = _temperatura(rows)
+
+    def _soma(etapa):
+        return sum(r["valor_credito"] or 0 for r in rows if r["etapa"] == etapa)
+    # Crédito por tipo de carta: o que já fechou e o que está em negociação.
+    por_tipo = {}
+    for r in rows:
+        if r["etapa"] in ("vendido", "documentacao", "negociando", "respondeu"):
+            icone, tipo = _tipo(r["produto"])
+            t = por_tipo.setdefault(tipo, {"tipo": tipo, "icone": icone, "fechado": 0, "cartas": 0, "andamento": 0})
+            if r["etapa"] == "vendido":
+                t["fechado"] += r["valor_credito"] or 0
+                t["cartas"] += 1
+            else:
+                t["andamento"] += r["valor_credito"] or 0
+    por_tipo = sorted(por_tipo.values(), key=lambda t: (-t["fechado"], -t["andamento"]))
+    maior = max((t["fechado"] + t["andamento"] for t in por_tipo), default=0) or 1
+    for t in por_tipo:
+        t["pct_fechado"] = round(100 * t["fechado"] / maior)
+        t["pct_andamento"] = round(100 * t["andamento"] / maior)
     placar = {
         "indicados": len(rows),
         "vendas": len(vendidos),
@@ -229,6 +260,10 @@ def pagina(token):
         "em_negociacao_valor": sum(r["valor_credito"] or 0 for r in rows if r["etapa"] in ("documentacao", "negociando", "respondeu")),
         "ultima_venda": _ha_quanto(max((r["atualizado_em"] for r in vendidos), default=None)),
         "temperatura": temperatura, "clima": clima, "posicao": _posicao_na_barra(temperatura),
+        "faixas": [("📄", "Documentação", _soma("documentacao")), ("🔥", "Proposta na mesa", _soma("negociando")),
+                   ("✨", "Interessados", _soma("respondeu"))],
+        "ticket_medio": round(sum(r["valor_credito"] or 0 for r in vendidos) / len(vendidos)) if vendidos else 0,
+        "por_tipo": por_tipo,
     }
     docs_novos = sum(1 for p in pacotes if not p["visto_em"])
     return render_template("gerente.html", g=g, token=token, consultor=cfg["nome_consultor"],

@@ -64,10 +64,32 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
   .barra .marca{animation:pulso 1.6s ease-out infinite}
   @keyframes pulso{0%{box-shadow:0 0 0 0 rgba(240,90,30,.55)}100%{box-shadow:0 0 0 14px rgba(240,90,30,0)}}
 }
+.termo .valor{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;margin:2px 0 4px}
+.termo .valor b{font-size:34px;font-weight:900;color:var(--amarelo);letter-spacing:-.02em;white-space:nowrap}
+.termo .valor span{font-size:14px;color:#c9d2f2}
+.faixas{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:12px 0 18px}
+.faixas div{background:rgba(255,255,255,.08);border-radius:12px;padding:9px 8px}
+.faixas b{display:block;font-size:16px;font-weight:900;white-space:nowrap}
+.faixas span{display:block;font-size:11px;color:#c9d2f2;margin-top:2px;line-height:1.25}
 .escala{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;font-size:11px;color:#9fb0e0;margin-top:8px;font-weight:600}
 
 /* Placar */
 .placar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.placar .tile.ouro{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:14px 16px}
+.placar .tile.ouro b{font-size:30px;color:var(--azul)}
+.placar .tile.ouro span{font-size:13px;font-weight:600;margin:0}
+.tipos{background:#fff;border:1px solid var(--borda);border-radius:16px;padding:6px 14px}
+.tipo{padding:12px 0;border-bottom:1px solid var(--borda)}
+.tipo:last-child{border-bottom:0}
+.tipo .lin{display:flex;align-items:center;gap:8px;font-size:15px}
+.tipo .lin b{font-weight:800}
+.tipo .lin .vl{margin-left:auto;font-weight:900;color:var(--verde);white-space:nowrap}
+.tipo .trilho{display:flex;height:9px;border-radius:6px;background:#eef1f8;overflow:hidden;margin:8px 0 5px}
+.tipo .trilho i{display:block;height:100%}
+.tipo .trilho .f{background:var(--verde)}.tipo .trilho .a{background:var(--fogo);opacity:.75}
+.tipo small{font-size:12px;color:var(--suave)}
+.leg-tipos{display:flex;gap:14px;font-size:12px;color:var(--suave);margin:8px 2px 0}
+.leg-tipos i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .tile{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:12px 10px}
 .tile b{display:block;font-size:20px;font-weight:900;color:var(--azul);white-space:nowrap}
 .tile span{font-size:12px;color:var(--suave);line-height:1.25;display:block;margin-top:2px}
@@ -82,7 +104,8 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
 .mesa.documentacao .pill{background:#fff1c2;color:#7a5a00;animation:none}
 .mesa .ic{font-size:24px}
 .mesa .nm{font-weight:800}
-.mesa .pd{font-size:13px;color:var(--suave)}
+.mesa .pd{font-size:13px;color:var(--suave);white-space:nowrap}
+.mesa .cr{display:block;font-size:16px;font-weight:900;color:var(--azul);margin-top:1px}
 .mesa .lado{margin-left:auto;text-align:right}
 .mesa .pill{display:inline-block;font-size:12px;font-weight:800;padding:4px 10px;border-radius:20px;background:#fde7dc;color:#b13a0c;white-space:nowrap}
 .mesa.interessado .pill{background:#fdf0dc;color:#9a5a00}
@@ -100,6 +123,8 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
 .mov p{margin:0;font-size:15px;line-height:1.35}
 .mov p b{font-weight:800}
 .mov small{color:var(--suave);font-size:12px}
+.mov small .vl{font-weight:800;color:var(--texto)}
+.mov.vendido small .vl{color:var(--verde)}
 .novo{display:inline-block;margin-left:6px;font-size:10px;font-weight:900;letter-spacing:.06em;background:var(--amarelo);color:var(--azul);border-radius:5px;padding:2px 6px;vertical-align:2px}
 .chamada{display:flex;align-items:center;gap:12px;width:100%;margin-top:18px;padding:16px 14px;border:0;border-radius:18px;text-align:left;
   background:linear-gradient(135deg,var(--azul),var(--azul-2));color:#fff;box-shadow:0 12px 24px -12px rgba(22,36,92,.8)}
@@ -127,7 +152,7 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
 .grupo h2{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:800;margin:22px 2px 8px}
 .grupo h2 .ct{margin-left:auto;font-size:13px;color:var(--suave);font-weight:600}
 .cli{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff;border:1px solid var(--borda);border-radius:12px;padding:12px 14px;margin-bottom:6px}
-.cli .nm{font-weight:700}.cli .pd{font-size:12px;color:var(--suave);text-transform:capitalize}
+.cli .nm{font-weight:700}.cli .pd{font-size:12px;color:var(--suave)}
 .selo{font-size:12px;font-weight:800;padding:4px 10px;border-radius:20px;white-space:nowrap}
 .selo.fechado{background:var(--verde);color:#fff}.selo.documentacao{background:#fff1c2;color:#7a5a00}.selo.negociando{background:#fde7dc;color:#b13a0c}.selo.interessado{background:#fdf0dc;color:#9a5a00}
 .selo.contato{background:#e8eefe;color:#2d4bc2}.selo.fila{background:#eef1f8;color:var(--suave)}.selo.fora{background:#eef1f8;color:#8a93a8}
@@ -268,24 +293,45 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
     <div class="rot">Temperatura das suas indicações</div>
     <div class="clima">{{ placar.clima }}
       <span class="chamas">{% for _ in range(3 if placar.temperatura >= 40 else (2 if placar.temperatura >= 22 else 1)) %}<span>🔥</span>{% endfor %}</span></div>
-    <p class="dica">{% if placar.andamento %}<b>{{ placar.andamento }} {{ 'cliente' if placar.andamento == 1 else 'clientes' }}</b> conversando agora{% if placar.em_negociacao_valor %} · <b>{{ placar.em_negociacao_valor|reais }}</b> em negociação{% endif %}{% else %}{{ consultor }} está fazendo os primeiros contatos{% endif %}.</p>
+    {% if placar.em_negociacao_valor %}
+    <div class="valor"><b>{{ placar.em_negociacao_valor|reais }}</b><span>em crédito no termômetro</span></div>
+    <p class="dica" style="margin:0"><b>{{ placar.andamento }} {{ 'cliente' if placar.andamento == 1 else 'clientes' }}</b> conversando agora com {{ consultor }}.</p>
+    <div class="faixas">{% for ic, nome, v in placar.faixas %}<div><b>{{ v|reais if v else 'R$ 0' }}</b><span>{{ ic }} {{ nome }}</span></div>{% endfor %}</div>
+    {% else %}
+    <p class="dica">{% if placar.andamento %}<b>{{ placar.andamento }} {{ 'cliente' if placar.andamento == 1 else 'clientes' }}</b> conversando agora{% else %}{{ consultor }} está fazendo os primeiros contatos{% endif %}.</p>
+    {% endif %}
     <div class="barra"><div class="tampa" style="left:{{ placar.posicao }}%"></div><div class="marca" style="left:{{ [[placar.posicao, 3]|max, 97]|min }}%"></div></div>
     <div class="escala"><span>Começando</span><span>Aquecendo</span><span>Esquentando</span><span>Fogo</span></div>
   </div>
 
   <div class="placar">
-    <div class="tile ouro"><b>{{ placar.valor_vendido|reais if placar.valor_vendido else 'R$ 0' }}</b><span>em cartas fechadas</span></div>
-    <div class="tile"><b>{{ placar.vendas }}</b><span>{{ 'venda fechada' if placar.vendas == 1 else 'vendas fechadas' }}</span></div>
+    <div class="tile ouro"><b>{{ placar.valor_vendido|reais if placar.valor_vendido else 'R$ 0' }}</b><span>de crédito já fechado<br>com as suas indicações</span></div>
+    <div class="tile"><b>{{ placar.vendas }}</b><span>{{ 'carta fechada' if placar.vendas == 1 else 'cartas fechadas' }}</span></div>
+    <div class="tile"><b>{{ placar.ticket_medio|reais if placar.ticket_medio else '—' }}</b><span>ticket médio</span></div>
     <div class="tile"><b>{{ placar.indicados }}</b><span>clientes indicados</span></div>
   </div>
   {% if placar.ultima_venda %}<p class="ultima">🏆 Última venda {{ placar.ultima_venda }}.</p>{% endif %}
+
+  {% if placar.por_tipo %}
+  <h2 class="sec">Crédito por tipo de carta</h2>
+  <div class="tipos">
+    {% for t in placar.por_tipo %}
+    <div class="tipo">
+      <div class="lin"><span>{{ t.icone }}</span><b>{{ t.tipo }}</b><span class="vl">{{ t.fechado|reais if t.fechado else 'R$ 0' }}</span></div>
+      <div class="trilho"><i class="f" style="width:{{ t.pct_fechado }}%"></i><i class="a" style="width:{{ t.pct_andamento }}%"></i></div>
+      <small>{% if t.cartas %}{{ t.cartas }} {{ 'carta fechada' if t.cartas == 1 else 'cartas fechadas' }}{% else %}Nenhuma fechada ainda{% endif %}{% if t.andamento %} · {{ t.andamento|reais }} em negociação{% endif %}</small>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="leg-tipos"><span><i style="background:var(--verde)"></i>Fechado</span><span><i style="background:var(--fogo);opacity:.75"></i>Em negociação</span></div>
+  {% endif %}
 
   {% if na_mesa %}
   <h2 class="sec">🔥 Na mesa agora<span class="ct">{{ na_mesa|length }}</span></h2>
   {% for m in na_mesa %}
   <div class="mesa {{ 'interessado' if m.etapa == 'respondeu' }}{{ 'documentacao' if m.etapa == 'documentacao' }}">
     <span class="ic">{{ '📄' if m.etapa == 'documentacao' else ('🔥' if m.etapa == 'negociando' else '✨') }}</span>
-    <div><div class="nm">{{ m.nome }}</div><div class="pd">{{ m.produto|capitalize }}{% if m.credito %} · {{ m.credito|reais }}{% endif %}</div></div>
+    <div><div class="nm">{{ m.nome }}</div><div class="pd">{{ m.tipo_icone }} {{ m.tipo }}</div>{% if m.credito %}<b class="cr">{{ m.credito|reais }}</b>{% endif %}</div>
     <div class="lado"><span class="pill">{{ 'Documentação recebida' if m.etapa == 'documentacao' else ('Proposta na mesa' if m.etapa == 'negociando' else 'Interessado') }}</span><span class="qd">{{ m.quando }}</span></div>
   </div>
   {% endfor %}
@@ -295,8 +341,8 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
   <h2 class="sec">Movimentações</h2>
   <div class="feed">
     {% for m in movimentos %}
-    <div class="mov"><span class="ic">{{ m.icone }}</span>
-      <div><p><b>{{ m.nome }}</b> {{ m.texto }}.{% if m.novo %}<span class="novo">NOVO</span>{% endif %}</p><small>{{ m.quando }}</small></div></div>
+    <div class="mov {{ m.etapa }}"><span class="ic">{{ m.icone }}</span>
+      <div><p><b>{{ m.nome }}</b> {{ m.texto }}.{% if m.novo %}<span class="novo">NOVO</span>{% endif %}</p><small>{% if m.valor %}<span class="vl">{{ m.valor|reais }}</span> · {% endif %}{{ m.quando }}</small></div></div>
     {% endfor %}
   </div>
   {% endif %}
@@ -361,7 +407,7 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
   <div class="grupo {{ gr.chave }}">
     <h2>{{ gr.titulo }}<span class="ct">{{ gr.itens|length }}</span></h2>
     {% for c in gr.itens %}
-    <div class="cli"><div><div class="nm">{{ c.nome }}</div>{% if c.produto %}<div class="pd">{{ c.produto }}</div>{% endif %}</div><span class="selo {{ gr.chave }}">{{ selos[gr.chave] }}</span></div>
+    <div class="cli"><div><div class="nm">{{ c.nome }}</div><div class="pd">{{ c.tipo_icone }} {{ c.tipo }}{% if c.credito %} · {{ c.credito|reais }}{% endif %}</div></div><span class="selo {{ gr.chave }}">{{ selos[gr.chave] }}</span></div>
     {% endfor %}
   </div>
   {% endfor %}
