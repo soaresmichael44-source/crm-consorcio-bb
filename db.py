@@ -8,7 +8,6 @@ import json
 import os
 import re
 import sqlite3
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -181,10 +180,24 @@ _RE_INSERT = re.compile(r"^\s*INSERT\s+INTO\s+(\w+)", re.I)
 
 
 class _ConexaoPg:
-    """Imita o pedaço da API do sqlite3 que o sistema usa (execute, commit, with)."""
-    def __init__(self, pool):
-        self._pool = pool
-        self._conn = pool.getconn()
+    """Imita o pedaço da API do sqlite3 que o sistema usa (execute, commit, with).
+
+    Cada acesso abre a própria conexão e fecha no fim: sem reservatório de conexões, porque o
+    pooler do Supabase derruba conexões paradas e um reservatório pode ficar travado tentando
+    reconectar (aconteceu em 2026-10-27: PoolTimeout até reiniciar o serviço)."""
+    def __init__(self):
+        import time
+        import psycopg
+        ultimo_erro = None
+        for tentativa in range(3):
+            try:
+                # prepare_threshold=None: o pooler do Supabase não guarda prepared statements entre clientes.
+                self._conn = psycopg.connect(DATABASE_URL, prepare_threshold=None, connect_timeout=10)
+                return
+            except psycopg.OperationalError as e:
+                ultimo_erro = e
+                time.sleep(1 + tentativa)
+        raise ultimo_erro
 
     def execute(self, sql, params=()):
         sql = sql.replace("%", "%%").replace("?", "%s").replace(" LIKE ", " ILIKE ")
@@ -212,30 +225,15 @@ class _ConexaoPg:
             if not tipo:
                 raise  # falha ao gravar: o erro tem de aparecer
         finally:
-            self._pool.putconn(self._conn)  # o pool descarta sozinho conexão quebrada
-
-
-_pool = None
-_pool_lock = threading.Lock()
-
-
-def _pool_pg():
-    global _pool
-    with _pool_lock:
-        if _pool is None:
-            from psycopg_pool import ConnectionPool
-            # prepare_threshold=None: o pooler do Supabase não guarda prepared statements entre clientes.
-            # check: testa a conexão antes de entregar (o pooler do Supabase derruba conexões paradas);
-            # max_idle: descarta conexões ociosas antes que o servidor as feche.
-            _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=int(os.getenv("PG_POOL_MAX", "5")),
-                                   kwargs={"prepare_threshold": None}, check=ConnectionPool.check_connection,
-                                   max_idle=120, open=True)
-        return _pool
+            try:
+                self._conn.close()
+            except Exception:
+                pass
 
 
 def conectar():
     if PG:
-        return _ConexaoPg(_pool_pg())
+        return _ConexaoPg()
     # Dois processos usam o banco (app.py e gerente.py): espera o lock em vez de falhar.
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
