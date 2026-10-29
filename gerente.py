@@ -128,8 +128,7 @@ MOVIMENTO = {
     "documentacao": ("📄", "enviou a documentação{p}, pronta para análise de crédito"),
     "negociando": ("🔥", "está negociando{p} — proposta na mesa"),
     "respondeu": ("✨", "respondeu e quer saber mais{p}"),
-    "contatado": ("📲", "recebeu o primeiro contato"),
-}
+}  # "Em contato" fica de fora: o feed mostra só quem já evoluiu na conversa.
 # Tipo da carta de consórcio, como o gerente fala na agência.
 TIPOS = {"imovel": ("🏠", "Imóvel"), "auto": ("🚗", "Automóvel"), "pesados": ("🚛", "Pesados"),
          "moto": ("🏍️", "Moto"), "servicos": ("🎓", "Serviços")}
@@ -194,7 +193,7 @@ def pagina(token):
     with db.conectar() as conn:
         cfg = db.config(conn)
         rows = conn.execute(
-            "SELECT c.nome, c.etapa, c.produto, c.valor_credito, c.atualizado_em FROM clientes c "
+            "SELECT c.nome, c.etapa, c.produto, c.valor_credito, c.atualizado_em, l.criado_em AS lote_em, l.descricao AS lote_desc FROM clientes c "
             "JOIN lotes l ON l.id = c.lote_id WHERE l.gerente_id = ? ORDER BY c.atualizado_em DESC", (g["id"],)).fetchall()
         pacotes = [dict(p) for p in conn.execute(
             "SELECT * FROM pacotes_docs WHERE gerente_id = ? ORDER BY id DESC LIMIT 30", (g["id"],))]
@@ -231,6 +230,29 @@ def pagina(token):
         if itens:
             grupos.append({"chave": chave, "titulo": titulo, "itens": itens})
     regua = [g_["chave"] for g_ in grupos for _ in g_["itens"]]
+    # Listas por dia de envio (últimos 7 dias): só números, para o gerente ver o andamento sem a aba encher de nomes.
+    hoje = datetime.now().date()
+    por_dia = {}
+    for r in rows:
+        if (r["lote_desc"] or "").startswith("Documentos enviados pelo cliente"):
+            continue
+        try:
+            dia = datetime.strptime(r["lote_em"][:10], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            continue
+        if (hoje - dia).days > 6:
+            continue
+        d = por_dia.setdefault(dia, {"total": 0, "contatados": 0, "interessados": 0, "fechados": 0})
+        d["total"] += 1
+        d["contatados"] += r["etapa"] != "novo"
+        d["interessados"] += r["etapa"] in ("respondeu", "negociando", "documentacao", "vendido")
+        d["fechados"] += r["etapa"] == "vendido"
+    listas_dia = []
+    for dia in sorted(por_dia, reverse=True):
+        dias = (hoje - dia).days
+        rotulo = "Hoje" if dias == 0 else ("Ontem" if dias == 1 else f"{dia:%d/%m}")
+        listas_dia.append({"rotulo": rotulo, **por_dia[dia],
+                           "pct": round(100 * por_dia[dia]["contatados"] / por_dia[dia]["total"])})
     vendidos = [r for r in rows if r["etapa"] == "vendido"]
     temperatura, clima = _temperatura(rows)
 
@@ -267,7 +289,7 @@ def pagina(token):
     }
     docs_novos = sum(1 for p in pacotes if not p["visto_em"])
     return render_template("gerente.html", g=g, token=token, consultor=cfg["nome_consultor"],
-                           grupos=grupos, regua=regua, placar=placar, movimentos=movimentos,
+                           grupos=grupos, regua=regua, listas_dia=listas_dia, placar=placar, movimentos=movimentos,
                            na_mesa=na_mesa, vendas_novas=vendas_novas, pacotes=pacotes, docs_novos=docs_novos,
                            movs_novos=sum(1 for m in movimentos if m["novo"]), carregado_em=db.agora())
 

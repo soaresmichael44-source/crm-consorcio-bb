@@ -86,9 +86,13 @@ with db.conectar() as conn:
     conn.execute("INSERT INTO gerentes (nome, agencia, token, criado_em, ultima_visita) VALUES (?, ?, ?, ?, ?)",
                  ("Carlos (exemplo)", "Savassi", TOKEN, db.agora(), "2026-01-01 00:00:00"))
     gid = conn.execute("SELECT id FROM gerentes WHERE token = ?", (TOKEN,)).fetchone()["id"]
-    lote_id, _, _ = db.importar_lote(
-        conn, [{"nome": n, "produto": p, "valor_credito": v} for n, p, v, _, _ in CLIENTES],
-        "Exemplo", 2, gerente_id=gid)
+    # Quatro listas em dias diferentes, para a aba Indicações mostrar "Hoje", "Ontem"…
+    for i, dias in enumerate((6, 4, 1, 0)):
+        lote_id, _, _ = db.importar_lote(
+            conn, [{"nome": n, "produto": p, "valor_credito": v} for n, p, v, _, _ in CLIENTES[i::4]],
+            "Exemplo", 1, gerente_id=gid)
+        conn.execute("UPDATE lotes SET criado_em = ? WHERE id = ?",
+                     ((datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d %H:%M:%S"), lote_id))
     for nome, _, _, etapa, horas in CLIENTES:
         quando = (datetime.now() - timedelta(hours=horas)).strftime("%Y-%m-%d %H:%M:%S")
         conn.execute("UPDATE clientes SET etapa = ?, atualizado_em = ? WHERE nome = ?", (etapa, quando, nome.title()))

@@ -157,6 +157,16 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
 .selo.fechado{background:var(--verde);color:#fff}.selo.documentacao{background:#fff1c2;color:#7a5a00}.selo.negociando{background:#fde7dc;color:#b13a0c}.selo.interessado{background:#fdf0dc;color:#9a5a00}
 .selo.contato{background:#e8eefe;color:#2d4bc2}.selo.fila{background:#eef1f8;color:var(--suave)}.selo.fora{background:#eef1f8;color:#8a93a8}
 .grupo.fora{opacity:.6}
+.dias{display:grid;gap:8px;margin-bottom:6px}
+.dia{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:12px 14px}
+.dia.hoje{border:2px solid var(--amarelo)}
+.dia .lin{display:flex;align-items:baseline;gap:8px}
+.dia .lin b{font-weight:900;font-size:16px}
+.dia .lin span{margin-left:auto;font-size:13px;color:var(--suave)}
+.dia .trilho{height:8px;border-radius:6px;background:#eef1f8;overflow:hidden;margin:8px 0 6px}
+.dia .trilho i{display:block;height:100%;background:var(--contato)}
+.dia small{font-size:12px;color:var(--suave)}
+.dia small b{color:var(--fogo)}
 .aguardando{margin-top:22px;background:#fff;border:1px dashed #c9cfdb;border-radius:14px;padding:14px 16px}
 .aguardando b{display:block;font-weight:800}
 .aguardando span{display:block;font-size:13px;color:var(--texto);margin-top:4px}
@@ -401,6 +411,18 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
 
 <!-- ═══════════ INDICAÇÕES ═══════════ -->
 <section id="v-indicacoes" hidden>
+  {% if listas_dia %}
+  <h2 class="sec" style="margin-top:6px">Suas listas da semana</h2>
+  <div class="dias">
+    {% for d in listas_dia %}
+    <div class="dia {{ 'hoje' if d.rotulo == 'Hoje' }}">
+      <div class="lin"><b>{{ d.rotulo }}</b><span>{{ d.total }} {{ 'cliente' if d.total == 1 else 'clientes' }}</span></div>
+      <div class="trilho"><i style="width:{{ d.pct }}%"></i></div>
+      <small>{{ d.contatados }} {{ 'contatado' if d.contatados == 1 else 'contatados' }} · <b>{{ d.interessados }} {{ 'interessado' if d.interessados == 1 else 'interessados' }}</b>{% if d.fechados %} · {{ d.fechados }} {{ 'fechou' if d.fechados == 1 else 'fecharam' }}{% endif %}</small>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% if placar.indicados %}
   <div class="regua" aria-label="Andamento de cada cliente indicado">
     <div class="tracos">{% for c in regua %}<span class="traco {{ c }}" style="--i:{{ loop.index0 }}"></span>{% endfor %}</div>
@@ -516,7 +538,7 @@ const ABAS = ['inicio', 'enviar', 'indicacoes', 'documentos'];
 const SUBTITULOS = {
   inicio: `Acompanhe as suas indicações com ${CONSULTOR}.`,
   enviar: `Suas listas vão direto para ${CONSULTOR}.`,
-  indicacoes: 'Cada cliente que você indicou, do mais quente ao que ainda está na fila.',
+  indicacoes: 'Suas listas por dia e os clientes que já se interessaram.',
   documentos: 'Clientes novos que chegam para você na agência.',
 };
 // Navegação com pilha própria do portal: o "← Voltar" do rodapé leva sempre à tela
