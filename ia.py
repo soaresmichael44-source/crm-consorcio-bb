@@ -12,6 +12,7 @@ _FALLBACK = dotenv_values(Path.home() / "claude-whatsapp" / ".env")
 API_KEY = os.getenv("GEMINI_API_KEY") or _FALLBACK.get("GEMINI_API_KEY", "")
 MODELO = os.getenv("GEMINI_MODELO") or "gemini-flash-latest"
 MODELO_RESERVA = os.getenv("GEMINI_MODELO_RESERVA") or _FALLBACK.get("MODELO_GEMINI_RESERVA") or "gemini-flash-lite-latest"
+MODELO_LEITURA = os.getenv("GEMINI_MODELO_LEITURA") or "gemini-flash-lite-latest"
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
 
 
@@ -19,7 +20,7 @@ class ErroIA(RuntimeError):
     pass
 
 
-def _chamar(partes, max_tokens=8192, temperatura=0.2):
+def _chamar(partes, max_tokens=8192, temperatura=0.2, modelos=None):
     if not API_KEY:
         raise ErroIA("GEMINI_API_KEY não configurada (nem no .env do CRM BB, nem em ~/claude-whatsapp/.env).")
     corpo = {
@@ -34,7 +35,7 @@ def _chamar(partes, max_tokens=8192, temperatura=0.2):
     }
     # 503/429 de "alta demanda" são frequentes e passageiros: tenta de novo e
     # cai para o modelo reserva antes de desistir.
-    for tentativa, modelo in enumerate([MODELO, MODELO, MODELO_RESERVA, MODELO_RESERVA]):
+    for tentativa, modelo in enumerate(modelos or [MODELO, MODELO, MODELO_RESERVA, MODELO_RESERVA]):
         if tentativa:
             time.sleep(2 * tentativa)
         try:
@@ -83,7 +84,10 @@ def ler_listas(imagens):
     partes = [{"text": PROMPT_LEITURA}]
     for dados, mime in imagens:
         partes.append({"inline_data": {"mime_type": mime, "data": base64.b64encode(dados).decode()}})
-    res = _chamar(partes, max_tokens=16384, temperatura=0)
+    # Leitura de lista usa o modelo leve primeiro: lê uma página em ~5 s, enquanto o flash
+    # com raciocínio passava de 50 s e vivia em "alta demanda" (teste de 29/10/2026).
+    res = _chamar(partes, max_tokens=16384, temperatura=0,
+                  modelos=[MODELO_LEITURA, MODELO_LEITURA, MODELO, MODELO_LEITURA])
     return res.get("clientes", []), res.get("observacao_leitura", "")
 
 

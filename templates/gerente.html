@@ -20,7 +20,7 @@
   --fechado:#13865a; --documentacao:#e0b100; --negociando:#f05a1e; --interessado:#e07b2a; --contato:#2d4bc2; --fila:#9aa6c3; --fora:#c9cfdb;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{background:var(--fundo)}
+html,body{background:var(--fundo);overscroll-behavior-y:none}
 body{margin:0;font-family:Inter,system-ui,sans-serif;color:var(--texto);font-size:16px;min-height:100vh}
 button{font:inherit;color:inherit;cursor:pointer}
 button:focus-visible,a:focus-visible{outline:2px solid var(--amarelo);outline-offset:2px}
@@ -647,21 +647,52 @@ $('btnEnviar').onclick = async () => {
   $('txtStatus').textContent = 'Enviando…';
   const fd = new FormData();
   fotos.forEach((f, i) => fd.append('fotos', f.blob, f.pdf ? f.nome : `lista-${i + 1}.jpg`));
-  const lento = setTimeout(() => $('txtStatus').textContent = 'Lendo os contatos da lista. Leva até 1 minuto.', 2500);
+  enviando = true;
   try {
     const r = await fetch(`/g/${encodeURIComponent(TOKEN)}/enviar`, {method: 'POST', body: fd});
     const j = await r.json().catch(() => ({erro: 'Sem conexão. Verifique a internet e envie de novo.'}));
     if (!r.ok) throw new Error(j.erro || 'O envio não foi concluído. Tente de novo.');
-    const total = j.novos + j.atualizados;
-    $('resTitulo').textContent = `✓ ${total} ${total === 1 ? 'cliente recebido' : 'clientes recebidos'}`;
-    $('resSub').textContent = (j.novos === total ? 'Todos novos' : `${j.novos} novo(s) e ${j.atualizados} que já estava(m) na carteira`) + `. ${CONSULTOR} já começa os contatos.`;
-    if (j.sem_telefone) { $('resAviso').hidden = false; $('resAviso').textContent = `${j.sem_telefone} sem telefone legível na foto.`; }
-    $('resNomes').innerHTML = j.nomes.map(n => `<li>${n.replace(/[&<>]/g, '')}</li>`).join('');
-    $('resultado').hidden = false; atualizarVoltar();
+    acompanharLeitura(j.leitura);
   } catch (e) {
-    $('captura').hidden = false; mostrarErro(e.message);
-  } finally { clearTimeout(lento); $('status').hidden = true; }
+    $('status').hidden = true; $('captura').hidden = false; mostrarErro(e.message);
+  } finally { enviando = false; }
 };
+
+// A leitura roda no servidor: se a página recarregar, retoma o acompanhamento de onde parou.
+const CHAVE_LEITURA = 'leitura-' + TOKEN;
+let enviando = false;
+window.addEventListener('beforeunload', e => { if (enviando) { e.preventDefault(); e.returnValue = ''; } });
+function guardarLeitura(id){ try { id ? localStorage.setItem(CHAVE_LEITURA, id) : localStorage.removeItem(CHAVE_LEITURA); } catch {} }
+async function acompanharLeitura(id){
+  guardarLeitura(id);
+  mostrarAba('enviar');
+  $('erro').hidden = true; $('captura').hidden = true; $('resultado').hidden = true; $('status').hidden = false;
+  $('txtStatus').textContent = 'Lista recebida. Lendo os contatos…';
+  for (let i = 0; i < 150; i++) {
+    let j;
+    try { j = await (await fetch(`/g/${encodeURIComponent(TOKEN)}/leitura/${id}`, {cache: 'no-store'})).json(); }
+    catch { j = {status: 'lendo'}; }
+    if (j.status === 'ok') { guardarLeitura(null); return mostrarResultado(j); }
+    if (j.status === 'erro') { guardarLeitura(null); $('status').hidden = true; $('captura').hidden = false; return mostrarErro(j.erro); }
+    if (i === 6) $('txtStatus').textContent = 'Lendo os contatos… Pode sair desta tela: a lista não se perde.';
+    await new Promise(ok => setTimeout(ok, 2000));
+  }
+  $('status').hidden = true; $('captura').hidden = false;
+  mostrarErro('A leitura está demorando. A lista já está guardada: volte em alguns minutos.');
+}
+function mostrarResultado(j){
+  const total = j.novos + j.atualizados;
+  $('resTitulo').textContent = `✓ ${total} ${total === 1 ? 'cliente recebido' : 'clientes recebidos'}`;
+  $('resSub').textContent = (j.novos === total ? 'Todos novos' : `${j.novos} novo(s) e ${j.atualizados} que já estava(m) na carteira`) + `. ${CONSULTOR} já começa os contatos.`;
+  if (j.sem_telefone) { $('resAviso').hidden = false; $('resAviso').textContent = `${j.sem_telefone} sem telefone legível na foto.`; }
+  $('resNomes').innerHTML = j.nomes.map(n => `<li>${n.replace(/[&<>]/g, '')}</li>`).join('');
+  $('status').hidden = true; $('resultado').hidden = false; atualizarVoltar();
+}
+{
+  let pendente = {{ leitura_pendente|tojson }};
+  try { pendente = pendente || localStorage.getItem(CHAVE_LEITURA); } catch {}
+  if (pendente) setTimeout(() => acompanharLeitura(pendente), 0);
+}
 
 // ── Cadastro manual (botão + e "Digitar um contato") ──
 const veu = document.getElementById('veu'), form = document.getElementById('formContato');

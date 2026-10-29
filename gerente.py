@@ -5,14 +5,17 @@ Roda num processo e numa porta separados do CRM (app.py) de propósito: é a
 clientes, fila ou configurações. Cada gerente entra por um link com token
 próprio (/g/<token>), que o consultor cria e desativa em Configurações.
 """
+import contextvars
 import io
+import json
 import os
 import re
 import secrets
+import threading
 import time
 import zipfile
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -200,6 +203,9 @@ def pagina(token):
         for p in pacotes:
             p["docs"] = [dict(d) for d in conn.execute("SELECT * FROM documentos WHERE pacote_id = ? ORDER BY id", (p["id"],))]
             p["quando"] = _ha_quanto(p["criado_em"])
+        pendente = conn.execute(
+            "SELECT id FROM leituras WHERE gerente_id = ? AND status = 'lendo' AND criado_em >= ? ORDER BY id DESC LIMIT 1",
+            (g["id"], (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"))).fetchone()
         if not _eh_demo():
             conn.execute("UPDATE gerentes SET ultima_visita = ? WHERE id = ?", (db.agora(), g["id"]))
 
@@ -289,7 +295,8 @@ def pagina(token):
     }
     docs_novos = sum(1 for p in pacotes if not p["visto_em"])
     return render_template("gerente.html", g=g, token=token, consultor=cfg["nome_consultor"],
-                           grupos=grupos, regua=regua, listas_dia=listas_dia, placar=placar, movimentos=movimentos,
+                           grupos=grupos, regua=regua, listas_dia=listas_dia,
+                           leitura_pendente=pendente["id"] if pendente else None, placar=placar, movimentos=movimentos,
                            na_mesa=na_mesa, vendas_novas=vendas_novas, pacotes=pacotes, docs_novos=docs_novos,
                            movs_novos=sum(1 for m in movimentos if m["novo"]), carregado_em=db.agora())
 
@@ -413,6 +420,8 @@ def contato_manual(token):
 
 @app.post("/g/<token>/enviar")
 def enviar(token):
+    """Só guarda os arquivos e responde na hora: a leitura pela IA roda no servidor, então o gerente
+    pode atualizar a página ou fechar o navegador sem perder a lista."""
     g = _gerente(token)
     if not _limite_ok(token):
         return jsonify(erro="Muitos envios na última hora. Tente de novo mais tarde."), 429
@@ -421,35 +430,82 @@ def enviar(token):
         return jsonify(erro="Nenhum arquivo recebido."), 400
     if len(fotos) > MAX_FOTOS_POR_ENVIO:
         return jsonify(erro=f"Mande no máximo {MAX_FOTOS_POR_ENVIO} arquivos por vez."), 400
-    imagens = []
+    arquivos = []
     for f in fotos:
         mime = (f.mimetype or "").lower()
         if mime not in MIMES_ACEITOS:
             return jsonify(erro="Envie fotos (JPG, PNG, HEIC) ou PDF."), 400
-        dados = f.read()
         ext = "pdf" if mime == "application/pdf" else "jpg"
-        armazenamento.salvar("uploads", f"{datetime.now():%Y-%m-%d/%H%M%S}-g{g['id']}-{secrets.token_hex(3)}.{ext}", dados, mime)
-        imagens.append((dados, mime))
-    try:
-        lidos, obs = ia.ler_listas(imagens)
-    except ia.ErroIA:
-        return jsonify(erro="Não consegui ler os arquivos agora. Espere um minuto e envie de novo."), 502
-    lidos = [c for c in lidos if (c.get("nome") or "").strip()]
-    if not lidos:
-        return jsonify(erro="Não encontrei nenhum contato. Se for foto, tente mais de perto e sem reflexo."), 422
-    desc = f"Enviado pelo celular · {g['nome']}" + (f" · ag. {g['agencia']}" if g["agencia"] else "")
+        caminho = f"{datetime.now():%Y-%m-%d/%H%M%S}-g{g['id']}-{secrets.token_hex(3)}.{ext}"
+        armazenamento.salvar("uploads", caminho, f.read(), mime)
+        arquivos.append([caminho, mime])
     with db.conectar() as conn:
-        lote_id, novos, atualizados = db.importar_lote(conn, lidos, desc, len(imagens), gerente_id=g["id"])
+        cur = conn.execute(
+            "INSERT INTO leituras (gerente_id, criado_em, status, arquivos) VALUES (?, ?, 'lendo', ?)",
+            (g["id"], db.agora(), json.dumps(arquivos)))
+        leitura_id = cur.lastrowid
+    _ler_em_segundo_plano(leitura_id)
+    return jsonify(ok=True, leitura=leitura_id)
+
+
+def _ler_em_segundo_plano(leitura_id):
+    # copy_context: a thread herda o banco de demonstração quando o envio veio do link de demonstração.
+    ctx = contextvars.copy_context()
+    threading.Thread(target=ctx.run, args=(_processar_leitura, leitura_id), daemon=True).start()
+
+
+def _processar_leitura(leitura_id):
+    with db.conectar() as conn:
+        conn.execute("UPDATE leituras SET iniciado_em = ?, tentativas = tentativas + 1 WHERE id = ?", (db.agora(), leitura_id))
+        lt = conn.execute("SELECT * FROM leituras WHERE id = ?", (leitura_id,)).fetchone()
+        g = conn.execute("SELECT * FROM gerentes WHERE id = ?", (lt["gerente_id"],)).fetchone()
+    erro = None
+    try:
+        imagens = [(armazenamento.ler("uploads", caminho), mime) for caminho, mime in json.loads(lt["arquivos"])]
+        lidos, obs = ia.ler_listas(imagens)
+        lidos = [c for c in lidos if (c.get("nome") or "").strip()]
+        if not lidos:
+            erro = "Não encontrei nenhum contato. Se for foto, tente mais de perto e sem reflexo."
+    except ia.ErroIA:
+        erro = "Não consegui ler os arquivos agora. Espere um minuto e envie de novo."
+    except Exception as e:  # roda solto: registra o erro em vez de sumir com a lista
+        print(f"[leitura {leitura_id}] falha: {e}", flush=True)
+        erro = "Não consegui ler os arquivos agora. Espere um minuto e envie de novo."
+    with db.conectar() as conn:
+        if erro:
+            conn.execute("UPDATE leituras SET status = 'erro', erro = ? WHERE id = ?", (erro, leitura_id))
+            return
+        desc = f"Enviado pelo celular · {g['nome']}" + (f" · ag. {g['agencia']}" if g["agencia"] else "")
+        lote_id, novos, atualizados = db.importar_lote(conn, lidos, desc, len(json.loads(lt["arquivos"])), gerente_id=g["id"])
         conn.execute("UPDATE gerentes SET ultimo_envio = ? WHERE id = ?", (db.agora(), g["id"]))
+        resultado = {
+            "novos": novos, "atualizados": atualizados, "observacao": obs,
+            "sem_telefone": sum(1 for c in lidos if not db.normalizar_telefone(c.get("telefone"))),
+            # O gerente vê só os nomes que ele mesmo fotografou, para conferir a leitura.
+            "nomes": [(c.get("nome") or "").strip().title() for c in lidos],
+        }
+        conn.execute("UPDATE leituras SET status = 'ok', lote_id = ?, resultado = ? WHERE id = ?",
+                     (lote_id, json.dumps(resultado, ensure_ascii=False), leitura_id))
     if not _eh_demo():
         sdr.processar_lote_em_segundo_plano(lote_id)
-    sem_tel = sum(1 for c in lidos if not db.normalizar_telefone(c.get("telefone")))
-    return jsonify(
-        ok=True, lote=lote_id, novos=novos, atualizados=atualizados, sem_telefone=sem_tel,
-        # O gerente vê só os nomes que ele mesmo fotografou, para conferir a leitura.
-        nomes=[(c.get("nome") or "").strip().title() for c in lidos],
-        observacao=obs,
-    )
+
+
+@app.get("/g/<token>/leitura/<int:leitura_id>")
+def leitura(token, leitura_id):
+    g = _gerente(token)
+    with db.conectar() as conn:
+        lt = conn.execute("SELECT * FROM leituras WHERE id = ? AND gerente_id = ?", (leitura_id, g["id"])).fetchone()
+    if not lt:
+        abort(404)
+    if lt["status"] == "lendo":
+        # Servidor reiniciou no meio da leitura (a thread morre junto): retoma a partir dos arquivos guardados.
+        parado = (datetime.now() - datetime.strptime(lt["iniciado_em"] or lt["criado_em"], "%Y-%m-%d %H:%M:%S")).total_seconds()
+        if parado > 180 and lt["tentativas"] < 3:
+            _ler_em_segundo_plano(leitura_id)
+        return jsonify(status="lendo")
+    if lt["status"] == "erro":
+        return jsonify(status="erro", erro=lt["erro"])
+    return jsonify(status="ok", **json.loads(lt["resultado"]))
 
 
 @app.template_filter("reais")

@@ -100,6 +100,18 @@ CREATE TABLE IF NOT EXISTS pacotes_docs (
     visto_em TEXT,             -- gerente abriu a aba Documentos depois do envio
     recebido_em TEXT           -- gerente marcou "Recebi, vou dar andamento"
 );
+CREATE TABLE IF NOT EXISTS leituras (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gerente_id INTEGER NOT NULL REFERENCES gerentes(id),
+    criado_em TEXT NOT NULL,
+    iniciado_em TEXT,          -- última vez que a leitura começou (para retomar se o servidor reiniciar)
+    tentativas INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,      -- lendo, ok ou erro
+    arquivos TEXT NOT NULL,    -- JSON com [caminho em uploads/, mime] de cada arquivo
+    lote_id INTEGER,
+    resultado TEXT,            -- JSON com nomes, novos, atualizados e sem_telefone
+    erro TEXT
+);
 CREATE TABLE IF NOT EXISTS documentos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pacote_id INTEGER NOT NULL REFERENCES pacotes_docs(id) ON DELETE CASCADE,
