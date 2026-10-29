@@ -157,6 +157,10 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
 .selo.fechado{background:var(--verde);color:#fff}.selo.documentacao{background:#fff1c2;color:#7a5a00}.selo.negociando{background:#fde7dc;color:#b13a0c}.selo.interessado{background:#fdf0dc;color:#9a5a00}
 .selo.contato{background:#e8eefe;color:#2d4bc2}.selo.fila{background:#eef1f8;color:var(--suave)}.selo.fora{background:#eef1f8;color:#8a93a8}
 .grupo.fora{opacity:.6}
+.aguardando{margin-top:22px;background:#fff;border:1px dashed #c9cfdb;border-radius:14px;padding:14px 16px}
+.aguardando b{display:block;font-weight:800}
+.aguardando span{display:block;font-size:13px;color:var(--texto);margin-top:4px}
+.aguardando small{display:block;font-size:12px;color:var(--suave);margin-top:6px;line-height:1.35}
 
 /* Enviar lista */
 .visor{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:210px;
@@ -403,7 +407,13 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
     <div class="legenda">{% for gr in grupos if gr.chave != 'fora' %}<span><i style="background:var(--{{ gr.chave }})"></i>{{ gr.titulo }} <b>{{ gr.itens|length }}</b></span>{% endfor %}</div>
   </div>
   {% set selos = {'fechado': '🏆 Fechou!', 'documentacao': '📄 Documentação recebida', 'negociando': '🔥 Negociando', 'interessado': '✨ Interessado', 'contato': '📲 Em contato', 'fila': '⏳ Na fila', 'fora': 'Fora do momento'} %}
-  {% for gr in grupos %}
+  {# Só aparece com nome quem já mostrou interesse; o resto vira um resumo, para a lista não encher. #}
+  {% set aguardando = grupos|selectattr('chave', 'in', ['contato', 'fila'])|list %}
+  {% set qtd_aguardando = aguardando|map(attribute='itens')|map('length')|sum %}
+  {% if not (grupos|rejectattr('chave', 'in', ['contato', 'fila', 'fora'])|list) %}
+  <div class="vazio" style="margin-top:14px"><b>Ninguém respondeu ainda</b>Assim que um cliente da sua lista se interessar, ele aparece aqui com o andamento da negociação.</div>
+  {% endif %}
+  {% for gr in grupos if gr.chave not in ['contato', 'fila', 'fora'] %}
   <div class="grupo {{ gr.chave }}">
     <h2>{{ gr.titulo }}<span class="ct">{{ gr.itens|length }}</span></h2>
     {% for c in gr.itens %}
@@ -411,6 +421,13 @@ main{max-width:520px;margin:0 auto;padding:16px 16px calc(160px + env(safe-area-
     {% endfor %}
   </div>
   {% endfor %}
+  {% if qtd_aguardando %}
+  <div class="aguardando">
+    <b>{{ qtd_aguardando }} {{ 'cliente' if qtd_aguardando == 1 else 'clientes' }} ainda sem retorno</b>
+    <span>{% for gr in aguardando %}{{ gr.titulo }}: {{ gr.itens|length }}{{ ' · ' if not loop.last }}{% endfor %}</span>
+    <small>{{ consultor }} segue no follow-up. Quando um deles se interessar, aparece aqui em cima.</small>
+  </div>
+  {% endif %}
   {% else %}
   <div class="vazio"><b>Nenhuma indicação ainda</b>Fotografe sua primeira lista na aba Enviar. Cada cliente aparece aqui com o andamento da negociação.</div>
   {% endif %}
