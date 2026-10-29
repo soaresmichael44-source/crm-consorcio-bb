@@ -464,6 +464,9 @@ def _exigir_token():
 @app.post("/api/n8n/ciclo")
 def n8n_ciclo():
     _exigir_token()
+    if request.args.get("fundo") == "1":
+        sdr.ciclo_em_segundo_plano()
+        return jsonify(ok=True, em_andamento=True), 202
     with db.conectar() as conn:
         return jsonify(sdr.ciclo(conn, db.config(conn)))
 

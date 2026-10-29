@@ -196,6 +196,19 @@ def registrar_resposta(conn, telefone, texto):
     return {"cliente_id": c["id"], "etapa": etapa}
 
 
+def ciclo_em_segundo_plano():
+    """Rodada diária disparada pelo agendador da nuvem: responde na hora e redige/envia em segundo plano,
+    para a chamada não estourar o tempo limite enquanto a IA prepara as mensagens."""
+    def _rodar():
+        try:
+            with db.conectar() as conn:
+                r = ciclo(conn, db.config(conn))
+            print(f"[cadência] {r}", flush=True)
+        except Exception as e:
+            print(f"[cadência] falha: {e}", flush=True)
+    threading.Thread(target=_rodar, daemon=True).start()
+
+
 def processar_lote_em_segundo_plano(lote_id):
     """Chamado quando uma lista chega: primeiro contato do lote sem esperar a rodada das 9h.
     Com a trava geral desligada (ou fora do horário) só prepara as mensagens."""
