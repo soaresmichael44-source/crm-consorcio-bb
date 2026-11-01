@@ -5,6 +5,7 @@
 .numeros{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
 .num{display:block;background:#fff;border:1px solid var(--borda);border-radius:12px;padding:14px 16px;color:var(--texto)}
 .num:hover{border-color:var(--azul-2)}
+@media (max-width:600px){.numeros{grid-template-columns:repeat(2,1fr)}.num b{font-size:22px}}
 .num b{display:block;font-size:26px;font-weight:800;color:var(--azul);line-height:1.1}
 .num span{font-size:12px;color:var(--suave)}
 .num.quente b{color:var(--fogo, #f05a1e)}
@@ -39,7 +40,7 @@
   <div><h1>{{ 'Olá, ' ~ rep_logado.nome.split(' ')[0] ~ '!' if rep_logado else 'Painel da operação' }}</h1>
     <p class="sub" style="margin:0">{{ 'Os clientes das suas agências.' if rep_logado else 'Follow-up central e a negociação de cada representante.' }}</p></div>
   <span class="sp"></span>
-  {% if rep_logado %}<a class="btn am" href="/atender">Para atender{% if repasses_novos %} ({{ repasses_novos }}){% endif %}</a>
+  {% if rep_logado %}<a class="btn" href="/meus-gerentes#novo">+ Gerente</a><a class="btn am" href="/atender">Para atender{% if repasses_novos %} ({{ repasses_novos }}){% endif %}</a>
   {% else %}<a class="btn" href="/importar">+ Importar lista</a><a class="btn pri" href="/fila">Fila de hoje ({{ fila_n }})</a>{% endif %}
 </div>
 

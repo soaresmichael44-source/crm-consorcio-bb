@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block titulo %}Meus gerentes{% endblock %}
+{% block head %}
+<style>
+.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+.resumo div{background:#fff;border:1px solid var(--borda);border-radius:12px;padding:12px;text-align:center}
+.resumo b{display:block;font-size:22px;font-weight:800;color:var(--azul)}
+.resumo span{font-size:11px;color:var(--suave)}
+.resumo .ouro{background:var(--amarelo);border-color:var(--amarelo)}
+.resumo .ouro span{color:#5a4a00}
+@media (max-width:600px){.resumo{grid-template-columns:repeat(2,1fr)}}
+.gers{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:18px}
+@media (max-width:600px){.gers{grid-template-columns:1fr}}
+.ger{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:14px 16px}
+.ger.off{opacity:.55}
+.ger.recem{border-color:var(--amarelo);box-shadow:0 0 0 3px #fdf3b8}
+.ger .nm{font-weight:800;font-size:15px}
+.ger .loc{font-size:12px;color:var(--suave);margin-top:2px}
+.ger .nums{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;text-align:center;margin:12px 0;padding:10px 0;border-top:1px solid var(--borda);border-bottom:1px solid var(--borda)}
+.ger .nums b{display:block;font-size:17px;font-weight:800;color:var(--azul)}
+.ger .nums span{font-size:10px;color:var(--suave);text-transform:uppercase;letter-spacing:.03em}
+.ger .cred{font-size:13px}
+.ger .cred strong{color:var(--verde)}
+.ger .acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.ger details{margin-top:10px;font-size:13px}
+.ger details summary{cursor:pointer;color:var(--suave);font-weight:600}
+.ger details input{font-size:12px;margin:4px 0}
+.form-ger{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-ger .full{grid-column:1/-1}
+input,select{font-size:16px}
+</style>
+{% endblock %}
+{% block corpo %}
+<div class="linha" style="align-items:flex-start">
+  <div><h1>Meus gerentes</h1>
+    <p class="sub">Os gerentes de agência que você trouxe. As listas que eles mandam entram no follow-up da central, e os clientes interessados chegam para você em <a href="/atender">Para atender</a>.</p></div>
+  <span class="sp"></span>
+  <a class="btn am" href="#novo">+ Incluir gerente</a>
+</div>
+
+{% if novo %}<div class="aviso ok">Gerente incluído. Agora mande o link do portal para ele pelo WhatsApp: é por lá que ele tira a foto das listas.</div>{% endif %}
+
+<div class="resumo">
+  <div><b>{{ gerentes|selectattr('ativo')|list|length }}</b><span>gerentes ativos</span></div>
+  <div><b>{{ prod.clientes }}</b><span>clientes recebidos</span></div>
+  <div><b>{{ prod.fechados }}</b><span>fechados</span></div>
+  <div class="ouro"><b>{{ prod.credito_fechado|compacto }}</b><span>crédito fechado</span></div>
+</div>
+
+{% set base = url_gerente or request.url_root.rstrip('/') %}
+<div class="gers">
+{% for x in gerentes %}
+  <div class="ger {{ '' if x.ativo else 'off' }} {{ 'recem' if novo and loop.first and x.ativo }}">
+    <div class="nm">{{ x.nome }}{% if not x.ativo %} <span class="tag">desativado</span>{% endif %}</div>
+    <div class="loc">🏦 {{ ['ag. ' ~ x.agencia if x.agencia else '', x.cidade, x.uf]|select|join(' · ') or 'agência' }}
+      · {{ 'última lista ' ~ (x.ultimo_envio|data) if x.ultimo_envio else 'ainda não mandou lista' }}</div>
+    <div class="nums">
+      <div><b>{{ x.listas }}</b><span>listas</span></div>
+      <div><b>{{ x.clientes }}</b><span>clientes</span></div>
+      <a href="/atender"><b>{{ x.interessados }}</b><span>interess.</span></a>
+      <div><b>{{ x.fechados }}</b><span>fechados</span></div>
+    </div>
+    <div class="cred"><strong>{{ x.credito_fechado|compacto }}</strong> fechado · {{ x.credito_andamento|compacto }} em negociação</div>
+    {% if x.ativo %}
+    {% set link = base ~ '/g/' ~ x.token %}{% set link_cli = base ~ '/d/' ~ token_docs[x.id] %}
+    <div class="acoes">
+      <a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/{{ x.telefone or '' }}?text={{ ('Olá, ' ~ x.nome.split(' ')[0] ~ '! Este é o seu acesso para enviar as listas do Consórcio BB e acompanhar as suas indicações: ' ~ link)|urlencode }}">Mandar portal no WhatsApp</a>
+      <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ link }}');this.textContent='Copiado!'">Copiar link</button>
+    </div>
+    <details><summary>Mais opções</summary>
+      <label style="margin-top:8px">Portal do gerente</label><input readonly value="{{ link }}" onclick="this.select()">
+      <label>Link para os clientes mandarem documentos</label>
+      <div class="linha"><input readonly value="{{ link_cli }}" onclick="this.select()" style="flex:1">
+        <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ link_cli }}');this.textContent='Copiado!'">Copiar</button></div>
+      <form method="post" action="/gerentes/{{ x.id }}/ativo" style="margin:10px 0 0" onsubmit="return confirm('Desativar o acesso de {{ x.nome }}? O link dele para de funcionar na hora.')">
+        <button class="btn peq">Desativar acesso</button></form>
+    </details>
+    {% else %}
+    <form method="post" action="/gerentes/{{ x.id }}/ativo" style="margin:12px 0 0"><button class="btn peq">Reativar (gera link novo)</button></form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card muted">Você ainda não incluiu nenhum gerente. Fechou parceria com uma agência? Inclua o gerente aqui embaixo e mande o link para ele.</div>
+{% endfor %}
+</div>
+
+<form class="card" id="novo" method="post" action="/gerentes/novo">
+  <h2>Incluir gerente de agência</h2>
+  <div class="form-ger">
+    <div class="full"><label>Nome do gerente</label><input name="nome" required placeholder="Ex.: Lucas Andrade"></div>
+    <div><label>Agência</label><input name="agencia" placeholder="Ex.: 1615 Savassi"></div>
+    <div><label>WhatsApp do gerente</label><input name="telefone" inputmode="tel" placeholder="(31) 99999-8888"></div>
+    <div><label>Cidade</label><input name="cidade" value="{{ rep_logado.cidade or '' }}"></div>
+    <div><label>UF</label><select name="uf"><option value="">—</option>{% for e in UFS %}<option {{ 'selected' if e == rep_logado.uf }}>{{ e }}</option>{% endfor %}</select></div>
+    <div class="full"><button class="btn am" style="width:100%;justify-content:center;padding:12px">Incluir gerente</button></div>
+  </div>
+  <p class="muted" style="margin:10px 0 0;font-size:12px">Ele ganha na hora o próprio portal para mandar as listas. Tudo que vier dele fica na sua carteira.</p>
+</form>
+{% endblock %}

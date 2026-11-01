@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block titulo %}CRM BB{% endblock %} · Consórcio BB</title>
+<meta name="theme-color" content="#16245c">
+<link rel="manifest" href="/app.webmanifest">
+<link rel="apple-touch-icon" href="/static/icone-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Consórcio BB">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -63,6 +70,26 @@ label{font-size:12px;color:var(--suave);font-weight:600;display:block;margin-bot
 .muted{color:var(--suave)}
 .linha{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .sp{flex:1}
+.vendo{background:var(--amarelo);color:var(--azul);font-weight:600;font-size:13px;padding:8px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.vendo a{margin-left:auto;color:var(--azul);font-weight:800;text-decoration:underline}
+nav.baixo{display:none}
+@media (max-width:860px){
+  body.rep nav.lado{display:none}
+  body.rep main{padding-bottom:90px}
+  body.rep .topo-rep{display:flex}
+  nav.baixo{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:20;background:#fff;
+    border-top:1px solid var(--borda);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+  nav.baixo a{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;font-weight:600;color:var(--suave);padding:4px 0;position:relative}
+  nav.baixo a i{font-style:normal;font-size:20px;line-height:1}
+  nav.baixo a.ativo{color:var(--azul)}
+  nav.baixo a.ativo i{background:var(--amarelo);border-radius:12px;padding:2px 12px}
+  nav.baixo .badge{position:absolute;top:0;left:56%;background:var(--vermelho);color:#fff;border-radius:9px;padding:0 6px;font-size:10px;font-weight:800}
+}
+.topo-rep{display:none;align-items:center;gap:10px;background:var(--azul);color:#fff;padding:12px 16px calc(12px);padding-top:calc(12px + env(safe-area-inset-top))}
+.topo-rep b{font-size:15px}
+.topo-rep small{display:block;color:#9fb0e0;font-size:11px;font-weight:500}
+.topo-rep a{margin-left:auto;color:#c9d2f2;font-size:12px;font-weight:600}
+.topo-rep a + a{margin-left:12px}
 @media (max-width:860px){
   .app{flex-direction:column} nav.lado{width:auto;height:auto;position:static;display:flex;flex-wrap:wrap;gap:4px;padding:12px}
   .marca{width:100%;padding-bottom:8px} main{padding:18px 16px} .g2{grid-template-columns:1fr}
@@ -71,7 +98,10 @@ label{font-size:12px;color:var(--suave);font-weight:600;display:block;margin-bot
 </style>
 {% block head %}{% endblock %}
 </head>
-<body>
+<body class="{{ 'rep' if rep_logado }}">
+{% if session.get('ver_como') and rep_logado %}<div class="vendo"><span>👁 Você está vendo o CRM como <strong>{{ rep_logado.nome }}</strong> vê.</span><a href="/voltar-operacao">Voltar para a operação</a></div>{% endif %}
+{% if rep_logado %}<div class="topo-rep"><div><b>Consórcio BB</b><small>{{ rep_logado.nome }} · representante</small></div>
+  <a href="/documentos">Documentos</a>{% if not session.get('ver_como') %}<a href="/sair">Sair</a>{% endif %}</div>{% endif %}
 <div class="app">
 <nav class="lado">
   <div class="marca">CRM Consórcio BB<small>Operação Banco do Brasil</small></div>
@@ -82,6 +112,7 @@ label{font-size:12px;color:var(--suave);font-weight:600;display:block;margin-bot
   <a href="/fila" class="{{ 'ativo' if p.startswith('/fila') }}">Fila de follow-up</a>
   {% if not rep_logado %}<a href="/clientes" class="{{ 'ativo' if p.startswith('/cliente') }}">Clientes</a>
   <a href="/rede" class="{{ 'ativo' if p.startswith('/rede') }}">Rede nacional</a>{% endif %}
+  {% if rep_logado %}<a href="/meus-gerentes" class="{{ 'ativo' if p.startswith('/meus-gerentes') }}">Meus gerentes</a>{% endif %}
   <a href="/documentos" class="{{ 'ativo' if p.startswith('/documentos') }}">Documentos</a>
   {% if not rep_logado %}<a href="/importar" class="{{ 'ativo' if p.startswith('/importar') }}">Importar listas</a>
   <a href="/config" class="{{ 'ativo' if p.startswith('/config') }}">Configurações</a>{% endif %}
@@ -90,6 +121,14 @@ label{font-size:12px;color:var(--suave);font-weight:600;display:block;margin-bot
 </nav>
 <main>{% block corpo %}{% endblock %}</main>
 </div>
+{% if rep_logado %}{% set p = request.path %}
+<nav class="baixo">
+  <a href="/" class="{{ 'ativo' if p == '/' }}"><i>⌂</i>Início</a>
+  <a href="/atender" class="{{ 'ativo' if p.startswith('/atender') or p.startswith('/cliente') }}"><i>☎</i>Atender{% if repasses_novos %}<span class="badge">{{ repasses_novos }}</span>{% endif %}</a>
+  <a href="/negociacoes" class="{{ 'ativo' if p.startswith('/negociacoes') }}"><i>▦</i>Negociações</a>
+  <a href="/meus-gerentes" class="{{ 'ativo' if p.startswith('/meus-gerentes') }}"><i>🏦</i>Gerentes</a>
+  <a href="/fila" class="{{ 'ativo' if p.startswith('/fila') }}"><i>↻</i>Follow-up</a>
+</nav>{% endif %}
 <script>
 async function api(url, dados){
   const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(dados||{})});

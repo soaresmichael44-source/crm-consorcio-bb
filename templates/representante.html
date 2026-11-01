@@ -28,6 +28,7 @@ th.num{text-align:right}
     <p class="sub">Representante · {{ [r.cidade, r.uf]|select|join(' · ') or 'sem cidade' }}{% if r.telefone %} · <a href="https://wa.me/{{ r.telefone }}" target="_blank" rel="noopener">{{ fmt_tel(r.telefone) }}</a>{% endif %}{% if r.email %} · {{ r.email }}{% endif %}</p></div>
   <span class="sp"></span>
   <a class="btn" href="/clientes?rep={{ r.id }}">Ver clientes</a>
+  {% if r.ativo %}<form method="post" action="/rede/representante/{{ r.id }}/ver-como" style="margin:0"><button class="btn pri">👁 Ver como {{ r.nome.split(' ')[0] }} vê</button></form>{% endif %}
   <a class="btn am" href="#novo-gerente">+ Gerente de agência</a>
 </div>
 

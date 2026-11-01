@@ -78,7 +78,7 @@ def _exigir_login():
         session.clear()  # representante desativado: perde o acesso na hora
     if DEMO or session.get("logado") or (not FORCAR_LOGIN and request.remote_addr in ("127.0.0.1", "::1")):
         return None
-    if request.path.startswith(("/static/", "/api/n8n/", "/acesso/")) or request.path == "/login":
+    if request.path.startswith(("/static/", "/api/n8n/", "/acesso/")) or request.path in ("/login", "/app.webmanifest"):
         return None
     if request.path.startswith("/api/"):
         return jsonify(erro="Sessão expirada. Entre de novo."), 401
@@ -512,10 +512,10 @@ def representante(rid):
 
 
 @app.post("/gerentes/novo")
-@so_admin
 def gerente_novo():
+    """Admin cadastra para qualquer representante; o representante cadastra só para ele mesmo."""
     nome = " ".join(request.form.get("nome", "").split())
-    rid = request.form.get("representante_id") or None
+    rid = _rep_id() or request.form.get("representante_id") or None
     if nome:
         with db.conectar() as conn:
             conn.execute(
@@ -524,6 +524,8 @@ def gerente_novo():
                 (nome, request.form.get("agencia", "").strip(), secrets.token_urlsafe(24), db.agora(), rid,
                  request.form.get("cidade", "").strip() or None, request.form.get("uf", "").strip().upper() or None,
                  db.normalizar_telefone(request.form.get("telefone")) or None))
+    if g.rep:
+        return redirect(url_for("meus_gerentes", novo=1))
     return redirect(_voltar(url_for("configuracoes") + "#gerentes"))
 
 
@@ -537,16 +539,64 @@ def gerente_representante(gid):
 
 
 @app.post("/gerentes/<int:gid>/ativo")
-@so_admin
 def gerente_ativo(gid):
-    """Desativar corta o link na hora; reativar gera um link novo (o antigo nunca volta)."""
+    """Desativar corta o link na hora; reativar gera um link novo (o antigo nunca volta).
+    O representante só mexe nos gerentes dele."""
     with db.conectar() as conn:
-        ger = conn.execute("SELECT ativo FROM gerentes WHERE id = ?", (gid,)).fetchone()
+        ger = conn.execute("SELECT ativo, representante_id FROM gerentes WHERE id = ?", (gid,)).fetchone()
+        if ger and g.rep and ger["representante_id"] != g.rep["id"]:
+            abort(404)
         if ger and ger["ativo"]:
             conn.execute("UPDATE gerentes SET ativo = 0 WHERE id = ?", (gid,))
         elif ger:
             conn.execute("UPDATE gerentes SET ativo = 1, token = ? WHERE id = ?", (secrets.token_urlsafe(24), gid))
+    if g.rep:
+        return redirect(url_for("meus_gerentes"))
     return redirect(_voltar(url_for("configuracoes") + "#gerentes"))
+
+
+@app.get("/meus-gerentes")
+def meus_gerentes():
+    """Os gerentes de agência que o representante trouxe: produção de cada um, links e cadastro de novos."""
+    if not g.rep:
+        return redirect(url_for("rede"))
+    rid = g.rep["id"]
+    with db.conectar() as conn:
+        gers = [x for x in db.producao_gerentes(conn) if x["representante_id"] == rid]
+        token_docs = {x["id"]: db.token_docs_do_gerente(conn, x["id"]) for x in gers if x["ativo"]}
+    gers.sort(key=lambda x: (-x["ativo"], -x["id"] if request.args.get("novo") else 0, -x["credito_fechado"], x["nome"]))
+    return render_template("meus_gerentes.html", gerentes=gers, prod=db.somar_producao(gers), UFS=UFS,
+                           url_gerente=url_publica_gerente(), token_docs=token_docs, novo=request.args.get("novo"))
+
+
+@app.post("/rede/representante/<int:rid>/ver-como")
+@so_admin
+def ver_como(rid):
+    """Você abre o CRM exatamente como o representante vê (para testar e conferir), sem precisar da senha dele."""
+    with db.conectar() as conn:
+        if not conn.execute("SELECT 1 FROM representantes WHERE id = ? AND ativo = 1", (rid,)).fetchone():
+            abort(404)
+    session["rep_id"] = rid
+    session["ver_como"] = True
+    return redirect(url_for("painel"))
+
+
+@app.get("/voltar-operacao")
+def voltar_operacao():
+    if session.pop("ver_como", None):
+        rid = session.pop("rep_id", None)
+        return redirect(url_for("representante", rid=rid) if rid else url_for("painel"))
+    return redirect(url_for("painel"))
+
+
+@app.get("/app.webmanifest")
+def manifest_crm():
+    """Deixa o CRM instalável na tela inicial do celular (abre como aplicativo)."""
+    return jsonify(
+        name="CRM Consórcio BB", short_name="Consórcio BB", start_url="/", scope="/",
+        display="standalone", background_color="#16245c", theme_color="#16245c",
+        icons=[{"src": "/static/icone-192.png", "sizes": "192x192", "type": "image/png"},
+               {"src": "/static/icone-512.png", "sizes": "512x512", "type": "image/png"}])
 
 
 @app.post("/api/lote/<int:lid>/gerente")

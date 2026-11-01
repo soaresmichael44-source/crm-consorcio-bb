@@ -27,7 +27,7 @@ button{width:100%;margin-top:18px;background:#f8d936;color:#16245c;border:0;bord
 {% else %}
 <form method="post" autocomplete="on">
   <h1>Olá, {{ r.nome.split(' ')[0] }}!</h1>
-  <p>Crie a sua senha para entrar no CRM Consórcio BB. Você vai ver os seus gerentes de agência, as listas deles e os seus clientes.</p>
+  <p>Crie a sua senha para entrar no CRM Consórcio BB. Você vai incluir os seus gerentes de agência e atender os clientes interessados que chegarem deles.</p>
   {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
   <label for="email">Seu e-mail (é o seu login)</label>
   <input id="email" type="email" name="email" value="{{ request.form.email or r.email or '' }}" autocomplete="username" autocapitalize="none" required>
