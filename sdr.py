@@ -60,9 +60,11 @@ def envios_hoje(conn):
     ).fetchone()[0]
 
 
-def fila(conn, limite=200, lote_id=None):
-    """Clientes com follow-up vencido, mais antigos primeiro (opcionalmente só de um lote)."""
+def fila(conn, limite=200, lote_id=None, rep_id=None):
+    """Clientes com follow-up vencido, mais antigos primeiro (opcionalmente só de um lote ou de um representante)."""
     filtro, args = ("AND lote_id = ? ", [lote_id]) if lote_id else ("", [])
+    filtro_r, args_r = db.filtro_rep(rep_id, "lote_id")
+    filtro, args = filtro + filtro_r + " ", args + args_r
     return conn.execute(
         "SELECT * FROM clientes WHERE pausado = 0 AND etapa NOT IN ('documentacao', 'vendido', 'perdido', 'optout') "
         "AND proximo_contato IS NOT NULL AND proximo_contato <= ? " + filtro +
@@ -79,9 +81,16 @@ def historico(conn, cliente_id, n=8):
     return list(reversed(rows))
 
 
+def cfg_do_cliente(conn, cliente, cfg):
+    """Cliente da carteira de um representante: a mensagem sai no nome dele, não no do consultor."""
+    r = db.representante_do_cliente(conn, cliente["id"])
+    return {**cfg, "nome_consultor": r["nome"]} if r else cfg
+
+
 def preparar_rascunho(conn, cliente, cfg, forcar=False):
     if cliente["rascunho"] and not forcar:
         return cliente["rascunho"]
+    cfg = cfg_do_cliente(conn, cliente, cfg)
     assunto, texto = ia.gerar_mensagem(cliente, historico(conn, cliente["id"]), cliente["tentativas"] + 1, cfg)
     conn.execute("UPDATE clientes SET rascunho = ?, rascunho_assunto = ?, atualizado_em = ? WHERE id = ?",
                  (texto, assunto, db.agora(), cliente["id"]))
@@ -160,7 +169,7 @@ def ciclo(conn, cfg, so_rascunhos=False, lote_id=None):
                 restante -= 1
             if email_auto and c["email"] and (wa_auto or not c["telefone"]):
                 c2 = conn.execute("SELECT * FROM clientes WHERE id = ?", (c["id"],)).fetchone()
-                assunto, corpo = enviar_email(c2, cfg)
+                assunto, corpo = enviar_email(c2, cfg_do_cliente(conn, c2, cfg))
                 # Sem telefone, o e-mail é o canal principal e avança a cadência.
                 registrar_envio(conn, c2, cfg, "email", corpo, "enviado", assunto=assunto, avancar=not c["telefone"])
                 resumo["emails"] += 1

@@ -151,7 +151,33 @@ MIGRACOES = [
     ("gerentes", "cidade", "TEXT"),
     ("gerentes", "uf", "TEXT"),
     ("gerentes", "telefone", "TEXT"),
+    # Login do representante: ele cria a senha pelo link de convite (o consultor nunca vê a senha).
+    ("representantes", "senha_hash", "TEXT"),
+    ("representantes", "convite_token", "TEXT"),
+    ("representantes", "convite_expira", "TEXT"),
+    ("representantes", "ultimo_acesso", "TEXT"),
 ]
+
+
+def filtro_rep(rep_id, coluna_lote="c.lote_id"):
+    """Trecho SQL que limita aos clientes/lotes dos gerentes de um representante (None = sem limite)."""
+    if not rep_id:
+        return "", []
+    return (f" AND {coluna_lote} IN (SELECT l2.id FROM lotes l2 JOIN gerentes g2 ON g2.id = l2.gerente_id "
+            "WHERE g2.representante_id = ?)"), [rep_id]
+
+
+def consultor_do_gerente(conn, gerente, cfg):
+    """Nome que o gerente e os clientes dele veem: o representante dele ou, sem representante, o consultor."""
+    r = conn.execute("SELECT nome FROM representantes WHERE id = ?", (gerente["representante_id"],)).fetchone() \
+        if gerente["representante_id"] else None
+    return r["nome"] if r else cfg["nome_consultor"]
+
+
+def representante_do_cliente(conn, cliente_id):
+    return conn.execute(
+        "SELECT r.* FROM clientes c JOIN lotes l ON l.id = c.lote_id JOIN gerentes g ON g.id = l.gerente_id "
+        "JOIN representantes r ON r.id = g.representante_id WHERE c.id = ?", (cliente_id,)).fetchone()
 
 def producao_gerentes(conn):
     """Uma linha por gerente com a produção das listas dele (base da tela Rede)."""

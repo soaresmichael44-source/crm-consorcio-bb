@@ -294,7 +294,9 @@ def pagina(token):
         "por_tipo": por_tipo,
     }
     docs_novos = sum(1 for p in pacotes if not p["visto_em"])
-    return render_template("gerente.html", g=g, token=token, consultor=cfg["nome_consultor"],
+    with db.conectar() as conn:
+        consultor = db.consultor_do_gerente(conn, g, cfg)
+    return render_template("gerente.html", g=g, token=token, consultor=consultor,
                            grupos=grupos, regua=regua, listas_dia=listas_dia,
                            leitura_pendente=pendente["id"] if pendente else None, placar=placar, movimentos=movimentos,
                            na_mesa=na_mesa, vendas_novas=vendas_novas, pacotes=pacotes, docs_novos=docs_novos,
@@ -552,8 +554,9 @@ def pagina_cliente(token_docs):
     g = _gerente_por_link_cliente(token_docs)
     with db.conectar() as conn:
         cfg = db.config(conn)
+        consultor = db.consultor_do_gerente(conn, g, cfg)
     return render_template("cliente_docs.html", g=g, token=token_docs, tipos=TIPOS_DOC,
-                           consultor=cfg["nome_consultor"], empresa=cfg["nome_empresa"])
+                           consultor=consultor, empresa=cfg["nome_empresa"])
 
 
 @app.post("/d/<token_docs>/enviar")

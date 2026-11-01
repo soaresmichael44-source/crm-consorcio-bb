@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#16245c">
+<title>Criar acesso · CRM Consórcio BB</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#16245c;font-family:Inter,system-ui,sans-serif;padding:16px;box-sizing:border-box}
+form,.caixa{background:#fff;border-radius:16px;padding:28px 24px;width:100%;max-width:380px;box-sizing:border-box}
+h1{margin:0 0 4px;font-size:20px;color:#16245c}
+p{margin:0 0 20px;color:#5b6584;font-size:14px;line-height:1.45}
+label{display:block;font-size:12px;font-weight:600;color:#5b6584;margin:12px 0 4px}
+input{width:100%;box-sizing:border-box;font:inherit;font-size:16px;border:1px solid #e1e5f0;border-radius:10px;padding:12px}
+button{width:100%;margin-top:18px;background:#f8d936;color:#16245c;border:0;border-radius:10px;padding:14px;font:inherit;font-weight:700;font-size:16px}
+.erro{background:#fbe9e9;color:#8f2525;border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:6px}
+</style>
+</head>
+<body>
+{% if not r %}
+<div class="caixa">
+  <h1>Link expirado</h1>
+  <p>Este link de acesso já foi usado ou passou de 7 dias. Peça um link novo para quem cadastrou você.</p>
+</div>
+{% else %}
+<form method="post" autocomplete="on">
+  <h1>Olá, {{ r.nome.split(' ')[0] }}!</h1>
+  <p>Crie a sua senha para entrar no CRM Consórcio BB. Você vai ver os seus gerentes de agência, as listas deles e os seus clientes.</p>
+  {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+  <label for="email">Seu e-mail (é o seu login)</label>
+  <input id="email" type="email" name="email" value="{{ request.form.email or r.email or '' }}" autocomplete="username" autocapitalize="none" required>
+  <label for="senha">Crie uma senha (mínimo 8 caracteres)</label>
+  <input id="senha" type="password" name="senha" autocomplete="new-password" minlength="8" required>
+  <label for="senha2">Repita a senha</label>
+  <input id="senha2" type="password" name="senha2" autocomplete="new-password" minlength="8" required>
+  <button>Criar acesso e entrar</button>
+</form>
+{% endif %}
+</body>
+</html>

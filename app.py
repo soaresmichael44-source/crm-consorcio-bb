@@ -6,7 +6,8 @@ import re
 import secrets
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,7 +17,8 @@ BASE = Path(__file__).resolve().parent
 # (mesma armadilha que já mordeu o CRM Mobie).
 load_dotenv(BASE / ".env")
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for  # noqa: E402
+from flask import Flask, abort, g, jsonify, redirect, render_template, request, send_file, session, url_for  # noqa: E402
+from werkzeug.security import check_password_hash, generate_password_hash  # noqa: E402
 
 import armazenamento  # noqa: E402
 import db  # noqa: E402
@@ -64,10 +66,19 @@ def _zerar_demo():
 
 @app.before_request
 def _exigir_login():
-    """Neste Mac abre direto. De outro aparelho, ou sempre na nuvem, pede a senha (CRM_BB_SENHA)."""
+    """Neste Mac abre direto. De outro aparelho, ou sempre na nuvem, pede a senha (CRM_BB_SENHA).
+    Representante entra com e-mail e senha própria e fica preso à carteira dele (g.rep)."""
+    g.rep = None
+    if session.get("rep_id"):
+        with db.conectar() as conn:
+            r = conn.execute("SELECT * FROM representantes WHERE id = ? AND ativo = 1", (session["rep_id"],)).fetchone()
+        if r:
+            g.rep = r
+            return None
+        session.clear()  # representante desativado: perde o acesso na hora
     if DEMO or session.get("logado") or (not FORCAR_LOGIN and request.remote_addr in ("127.0.0.1", "::1")):
         return None
-    if request.path.startswith(("/static/", "/api/n8n/")) or request.path == "/login":
+    if request.path.startswith(("/static/", "/api/n8n/", "/acesso/")) or request.path == "/login":
         return None
     if request.path.startswith("/api/"):
         return jsonify(erro="Sessão expirada. Entre de novo."), 401
@@ -83,9 +94,22 @@ def login():
     if request.method == "POST":
         ip = request.remote_addr
         _tentativas[ip] = [t for t in _tentativas[ip] if time.time() - t < 900]
+        email = request.form.get("email", "").strip().lower()
         if len(_tentativas[ip]) >= 8:
             erro = "Muitas tentativas. Espere 15 minutos."
+        elif email:
+            with db.conectar() as conn:
+                r = conn.execute("SELECT * FROM representantes WHERE LOWER(email) = ? AND ativo = 1", (email,)).fetchone()
+                if r and r["senha_hash"] and check_password_hash(r["senha_hash"], request.form.get("senha", "")):
+                    conn.execute("UPDATE representantes SET ultimo_acesso = ? WHERE id = ?", (db.agora(), r["id"]))
+                    session.clear()
+                    session.permanent = True
+                    session["rep_id"] = r["id"]
+                    return redirect(proximo)
+            _tentativas[ip].append(time.time())
+            erro = "E-mail ou senha incorretos."
         elif any(x and secrets.compare_digest(request.form.get("senha", ""), x) for x in (SENHA, SENHA_APRESENTACAO)):
+            session.clear()
             session.permanent = True
             session["logado"] = True
             return redirect(proximo)
@@ -95,9 +119,62 @@ def login():
     return render_template("login.html", erro=erro, proximo=proximo)
 
 
+@app.get("/sair")
+def sair():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/acesso/<token>", methods=["GET", "POST"])
+def acesso(token):
+    """Link de convite: o representante cria a própria senha (vale 7 dias e uma vez só)."""
+    with db.conectar() as conn:
+        r = conn.execute("SELECT * FROM representantes WHERE convite_token = ? AND ativo = 1", (token,)).fetchone()
+        if not r or (r["convite_expira"] or "") < db.agora():
+            return render_template("acesso.html", r=None)
+        erro = None
+        if request.method == "POST":
+            email = request.form.get("email", "").strip().lower()
+            senha = request.form.get("senha", "")
+            dono = conn.execute("SELECT id FROM representantes WHERE LOWER(email) = ? AND id <> ?", (email, r["id"])).fetchone()
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+                erro = "Digite um e-mail válido."
+            elif dono:
+                erro = "Este e-mail já é de outro representante."
+            elif len(senha) < 8:
+                erro = "A senha precisa de pelo menos 8 caracteres."
+            elif senha != request.form.get("senha2", ""):
+                erro = "As duas senhas não são iguais."
+            else:
+                conn.execute("UPDATE representantes SET email = ?, senha_hash = ?, convite_token = NULL, convite_expira = NULL, "
+                             "ultimo_acesso = ? WHERE id = ?", (email, generate_password_hash(senha, method="pbkdf2:sha256:600000"), db.agora(), r["id"]))
+                session.clear()
+                session.permanent = True
+                session["rep_id"] = r["id"]
+                return redirect(url_for("painel"))
+    return render_template("acesso.html", r=r, erro=erro)
+
+
+def so_admin(f):
+    """Telas da operação inteira (configurações, rede, importação, cadência): representante não entra."""
+    @wraps(f)
+    def _f(*a, **k):
+        if g.rep:
+            if request.path.startswith("/api/"):
+                return jsonify(erro="Sem permissão."), 403
+            return redirect(url_for("painel"))
+        return f(*a, **k)
+    return _f
+
+
+def _rep_id():
+    return g.rep["id"] if g.rep else None
+
+
 @app.context_processor
 def _globais():
-    return {"ETAPAS": db.ETAPAS, "ETAPAS_DICT": db.ETAPAS_DICT, "fmt_tel": db.telefone_formatado, "fmt_cpf": db.cpf_formatado}
+    return {"ETAPAS": db.ETAPAS, "ETAPAS_DICT": db.ETAPAS_DICT, "fmt_tel": db.telefone_formatado, "fmt_cpf": db.cpf_formatado,
+            "rep_logado": g.get("rep")}
 
 
 @app.template_filter("compacto")
@@ -129,7 +206,8 @@ def _data(v):
 
 
 def _cliente_ou_404(conn, cid):
-    c = conn.execute("SELECT * FROM clientes WHERE id = ?", (cid,)).fetchone()
+    filtro, args = db.filtro_rep(_rep_id(), "lote_id")
+    c = conn.execute("SELECT * FROM clientes WHERE id = ?" + filtro, (cid, *args)).fetchone()
     if not c:
         abort(404)
     return c
@@ -139,30 +217,38 @@ def _cliente_ou_404(conn, cid):
 
 @app.route("/")
 def painel():
+    rid = _rep_id()
+    fc, ac = db.filtro_rep(rid, "c.lote_id")
+    fl, al = db.filtro_rep(rid, "l.id")
+    fg, ag = (" AND representante_id = ?", [rid]) if rid else ("", [])
     with db.conectar() as conn:
         cfg = db.config(conn)
-        por_etapa = {r["etapa"]: r["n"] for r in conn.execute("SELECT etapa, COUNT(*) n FROM clientes GROUP BY etapa")}
+        por_etapa = {r["etapa"]: r["n"] for r in conn.execute(
+            "SELECT c.etapa, COUNT(*) n FROM clientes c WHERE 1=1" + fc + " GROUP BY c.etapa", ac)}
         total = sum(por_etapa.values())
-        fila_n = len(sdr.fila(conn))
+        fila_n = len(sdr.fila(conn, rep_id=rid))
         lotes = conn.execute(
-            "SELECT l.*, g.nome AS gerente FROM lotes l LEFT JOIN gerentes g ON g.id = l.gerente_id "
-            "ORDER BY l.id DESC LIMIT 6").fetchall()
-        gerentes = conn.execute("SELECT id, nome FROM gerentes WHERE ativo = 1 ORDER BY nome").fetchall()
+            "SELECT l.*, g.nome AS gerente FROM lotes l LEFT JOIN gerentes g ON g.id = l.gerente_id WHERE 1=1" + fl +
+            " ORDER BY l.id DESC LIMIT 6", al).fetchall()
+        gerentes = conn.execute("SELECT id, nome FROM gerentes WHERE ativo = 1" + fg + " ORDER BY nome", ag).fetchall()
         docs_clientes = conn.execute(
-            "SELECT id, cliente_id, cliente_nome FROM pacotes_docs WHERE origem = 'cliente' AND visto_consultor = 0 "
-            "ORDER BY id DESC").fetchall()
+            "SELECT p.id, p.cliente_id, p.cliente_nome FROM pacotes_docs p JOIN gerentes g ON g.id = p.gerente_id "
+            "WHERE p.origem = 'cliente' AND p.visto_consultor = 0" + (" AND g.representante_id = ?" if rid else "") +
+            " ORDER BY p.id DESC", ag).fetchall()
         recebidos = conn.execute(
             "SELECT g.nome, COUNT(*) AS lotes, SUM(l.qtd_clientes) AS contatos FROM lotes l "
-            "JOIN gerentes g ON g.id = l.gerente_id WHERE l.visto = 0 GROUP BY g.id").fetchall()
+            "JOIN gerentes g ON g.id = l.gerente_id WHERE l.visto = 0" + (" AND g.representante_id = ?" if rid else "") +
+            " GROUP BY g.id, g.nome", ag).fetchall()
         ultimas = conn.execute(
             "SELECT i.*, c.nome FROM interacoes i JOIN clientes c ON c.id = i.cliente_id "
-            "WHERE i.canal != 'sistema' ORDER BY i.id DESC LIMIT 8").fetchall()
+            "WHERE i.canal != 'sistema'" + fc + " ORDER BY i.id DESC LIMIT 8", ac).fetchall()
         return render_template("painel.html", por_etapa=por_etapa, total=total, fila_n=fila_n,
                                envios_hoje=sdr.envios_hoje(conn), cfg=cfg, lotes=lotes, ultimas=ultimas, recebidos=recebidos, gerentes=gerentes, docs_clientes=docs_clientes,
                                horario_ok=sdr.dentro_do_horario(cfg))
 
 
 @app.route("/importar")
+@so_admin
 def importar():
     return render_template("importar.html")
 
@@ -171,7 +257,7 @@ def importar():
 def clientes():
     etapa = request.args.get("etapa", "")
     busca = request.args.get("q", "").strip()
-    rep_id = request.args.get("rep", type=int)
+    rep_id = _rep_id() or request.args.get("rep", type=int)
     ger_id = request.args.get("gerente", type=int)
     sql, args = ("SELECT c.*, g.nome AS gerente_nome, r.nome AS rep_nome FROM clientes c "
                  "LEFT JOIN lotes l ON l.id = c.lote_id LEFT JOIN gerentes g ON g.id = l.gerente_id "
@@ -192,8 +278,10 @@ def clientes():
         args += [f"%{busca}%"] * 4
     with db.conectar() as conn:
         rows = conn.execute(sql + " ORDER BY c.atualizado_em DESC LIMIT 500", args).fetchall()
-        reps = conn.execute("SELECT id, nome FROM representantes ORDER BY nome").fetchall()
-        gers = conn.execute("SELECT id, nome, agencia, representante_id FROM gerentes ORDER BY nome").fetchall()
+        reps = [] if g.rep else conn.execute("SELECT id, nome FROM representantes ORDER BY nome").fetchall()
+        gers = conn.execute("SELECT id, nome, agencia, representante_id FROM gerentes" +
+                            (" WHERE representante_id = ?" if g.rep else "") + " ORDER BY nome",
+                            [g.rep["id"]] if g.rep else []).fetchall()
     return render_template("clientes.html", clientes=rows, etapa=etapa, busca=busca, reps=reps, gers=gers,
                            rep_id=rep_id, ger_id=ger_id)
 
@@ -219,12 +307,13 @@ def cliente(cid):
 def fila():
     with db.conectar() as conn:
         cfg = db.config(conn)
-        itens = sdr.fila(conn)
+        itens = sdr.fila(conn, rep_id=_rep_id())
         return render_template("fila.html", itens=itens, cfg=cfg, envios_hoje=sdr.envios_hoje(conn),
                                horario_ok=sdr.dentro_do_horario(cfg))
 
 
 @app.route("/config", methods=["GET", "POST"])
+@so_admin
 def configuracoes():
     with db.conectar() as conn:
         if request.method == "POST":
@@ -255,6 +344,8 @@ def _voltar(padrao):
 
 @app.route("/rede")
 def rede():
+    if g.rep:
+        return redirect(url_for("representante", rid=g.rep["id"]))
     uf = request.args.get("uf", "")
     with db.conectar() as conn:
         reps = [dict(r) for r in conn.execute("SELECT * FROM representantes ORDER BY ativo DESC, nome")]
@@ -278,6 +369,7 @@ def rede():
 
 
 @app.post("/rede/representantes/novo")
+@so_admin
 def representante_novo():
     nome = " ".join(request.form.get("nome", "").split())
     if nome:
@@ -291,11 +383,20 @@ def representante_novo():
 
 @app.route("/rede/representante/<int:rid>", methods=["GET", "POST"])
 def representante(rid):
+    if g.rep and g.rep["id"] != rid:
+        abort(404)
     with db.conectar() as conn:
         r = conn.execute("SELECT * FROM representantes WHERE id = ?", (rid,)).fetchone()
         if not r:
             abort(404)
-        if request.method == "POST":  # editar dados ou ativar/desativar
+        if request.method == "POST":  # editar dados, ativar/desativar ou gerar link de acesso: só o consultor
+            if g.rep:
+                abort(403)
+            if request.form.get("acao") == "convite":
+                token = secrets.token_urlsafe(24)
+                conn.execute("UPDATE representantes SET convite_token = ?, convite_expira = ? WHERE id = ?",
+                             (token, (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"), rid))
+                return redirect(url_for("representante", rid=rid) + "#acesso")
             if request.form.get("acao") == "ativo":
                 conn.execute("UPDATE representantes SET ativo = ? WHERE id = ?", (0 if r["ativo"] else 1, rid))
             else:
@@ -309,14 +410,16 @@ def representante(rid):
         token_docs = {g["id"]: db.token_docs_do_gerente(conn, g["id"]) for g in gers if g["ativo"]}
         outros = conn.execute("SELECT id, nome FROM representantes WHERE ativo = 1 AND id <> ? ORDER BY nome", (rid,)).fetchall()
     gers.sort(key=lambda g: (-g["ativo"], -g["credito_fechado"], -g["interessados"], g["nome"]))
+    convite = (request.url_root.rstrip("/") + url_for("acesso", token=r["convite_token"])
+               if r["convite_token"] and (r["convite_expira"] or "") >= db.agora() else None)
     return render_template("representante.html", r=r, gerentes=gers, prod=db.somar_producao(gers), UFS=UFS,
-                           url_gerente=url_publica_gerente(), token_docs=token_docs, outros=outros)
+                           url_gerente=url_publica_gerente(), token_docs=token_docs, outros=outros, convite=convite)
 
 
 @app.post("/gerentes/novo")
 def gerente_novo():
     nome = " ".join(request.form.get("nome", "").split())
-    rid = request.form.get("representante_id") or None
+    rid = _rep_id() or request.form.get("representante_id") or None
     if nome:
         with db.conectar() as conn:
             conn.execute(
@@ -329,6 +432,7 @@ def gerente_novo():
 
 
 @app.post("/gerentes/<int:gid>/representante")
+@so_admin
 def gerente_representante(gid):
     """Passa um gerente para outro representante (ou para a operação direta)."""
     with db.conectar() as conn:
@@ -340,15 +444,18 @@ def gerente_representante(gid):
 def gerente_ativo(gid):
     """Desativar corta o link na hora; reativar gera um link novo (o antigo nunca volta)."""
     with db.conectar() as conn:
-        g = conn.execute("SELECT ativo FROM gerentes WHERE id = ?", (gid,)).fetchone()
-        if g and g["ativo"]:
+        ger = conn.execute("SELECT ativo, representante_id FROM gerentes WHERE id = ?", (gid,)).fetchone()
+        if ger and g.rep and ger["representante_id"] != g.rep["id"]:
+            abort(404)
+        if ger and ger["ativo"]:
             conn.execute("UPDATE gerentes SET ativo = 0 WHERE id = ?", (gid,))
-        elif g:
+        elif ger:
             conn.execute("UPDATE gerentes SET ativo = 1, token = ? WHERE id = ?", (secrets.token_urlsafe(24), gid))
     return redirect(_voltar(url_for("configuracoes") + "#gerentes"))
 
 
 @app.post("/api/lote/<int:lid>/gerente")
+@so_admin
 def lote_gerente(lid):
     """Vincula uma lista já importada ao gerente que a indicou (aparece no placar dele)."""
     gid = request.get_json(force=True).get("gerente_id") or None
@@ -359,15 +466,21 @@ def lote_gerente(lid):
 
 @app.post("/api/docs-clientes/vistos")
 def docs_clientes_vistos():
+    rid = _rep_id()
     with db.conectar() as conn:
-        conn.execute("UPDATE pacotes_docs SET visto_consultor = 1 WHERE origem = 'cliente' AND visto_consultor = 0")
+        conn.execute("UPDATE pacotes_docs SET visto_consultor = 1 WHERE origem = 'cliente' AND visto_consultor = 0" +
+                     (" AND gerente_id IN (SELECT id FROM gerentes WHERE representante_id = ?)" if rid else ""),
+                     [rid] if rid else [])
     return jsonify(ok=True)
 
 
 @app.post("/api/lotes/vistos")
 def lotes_vistos():
+    rid = _rep_id()
     with db.conectar() as conn:
-        conn.execute("UPDATE lotes SET visto = 1 WHERE visto = 0")
+        conn.execute("UPDATE lotes SET visto = 1 WHERE visto = 0" +
+                     (" AND gerente_id IN (SELECT id FROM gerentes WHERE representante_id = ?)" if rid else ""),
+                     [rid] if rid else [])
     return jsonify(ok=True)
 
 
@@ -375,16 +488,20 @@ def lotes_vistos():
 
 @app.route("/documentos")
 def documentos():
+    rid = _rep_id()
+    fg, ag = (" AND g.representante_id = ?", [rid]) if rid else ("", [])
     with db.conectar() as conn:
-        gerentes = conn.execute("SELECT id, nome, agencia FROM gerentes WHERE ativo = 1 ORDER BY nome").fetchall()
+        gerentes = conn.execute("SELECT g.id, g.nome, g.agencia FROM gerentes g WHERE g.ativo = 1" + fg + " ORDER BY g.nome", ag).fetchall()
         cid = request.args.get("cliente", type=int)
-        cliente_sel = conn.execute("SELECT id, nome, produto FROM clientes WHERE id = ?", (cid,)).fetchone() if cid else None
+        cliente_sel = _cliente_ou_404(conn, cid) if cid else None
         pacotes = conn.execute(
             "SELECT p.*, g.nome AS gerente, (SELECT COUNT(*) FROM documentos d WHERE d.pacote_id = p.id) AS qtd "
-            "FROM pacotes_docs p JOIN gerentes g ON g.id = p.gerente_id ORDER BY p.id DESC LIMIT 50").fetchall()
+            "FROM pacotes_docs p JOIN gerentes g ON g.id = p.gerente_id WHERE 1=1" + fg + " ORDER BY p.id DESC LIMIT 50", ag).fetchall()
         docs = {}
-        for d in conn.execute("SELECT * FROM documentos WHERE pacote_id IN (SELECT id FROM pacotes_docs ORDER BY id DESC LIMIT 50)"):
-            docs.setdefault(d["pacote_id"], []).append(d)
+        if pacotes:
+            ids = [p["id"] for p in pacotes]
+            for d in conn.execute(f"SELECT * FROM documentos WHERE pacote_id IN ({','.join('?' * len(ids))})", ids):
+                docs.setdefault(d["pacote_id"], []).append(d)
         base = url_publica_gerente()
         links_cliente = [{"gerente": g, "url": f"{base or 'http://localhost:8096'}/d/{db.token_docs_do_gerente(conn, g['id'])}"}
                          for g in gerentes]
@@ -396,6 +513,11 @@ def documentos():
 def documentos_enviar():
     gid = request.form.get("gerente_id", type=int)
     cliente_id = request.form.get("cliente_id", type=int)
+    if g.rep:
+        with db.conectar() as conn:
+            ok = conn.execute("SELECT 1 FROM gerentes WHERE id = ? AND representante_id = ?", (gid, g.rep["id"])).fetchone()
+            if not ok or (cliente_id and not _cliente_ou_404(conn, cliente_id)):
+                abort(404)
     nome = request.form.get("cliente_nome", "").strip()
     arquivos = []
     for f in request.files.getlist("arquivos"):
@@ -419,8 +541,9 @@ def documentos_enviar():
 def documentos_arquivo(doc_id):
     with db.conectar() as conn:
         d = conn.execute(
-            "SELECT d.* FROM documentos d JOIN pacotes_docs p ON p.id = d.pacote_id "
-            "WHERE d.id = ? AND COALESCE(p.origem, 'consultor') != 'cliente'", (doc_id,)).fetchone()
+            "SELECT d.* FROM documentos d JOIN pacotes_docs p ON p.id = d.pacote_id JOIN gerentes g ON g.id = p.gerente_id "
+            "WHERE d.id = ? AND COALESCE(p.origem, 'consultor') != 'cliente'" +
+            (" AND g.representante_id = ?" if g.rep else ""), (doc_id, *([g.rep["id"]] if g.rep else []))).fetchone()
     if not d:
         abort(404)  # documentos enviados pelo cliente ficam só no Portal do Gerente
     return send_file(io.BytesIO(armazenamento.ler("documentos", d["caminho"])), download_name=d["nome"],
@@ -430,6 +553,7 @@ def documentos_arquivo(doc_id):
 # ------------------------------------------------------- importação por foto
 
 @app.post("/api/ler")
+@so_admin
 def api_ler():
     """Recebe 1+ imagens de lista do BB e devolve os clientes lidos pela IA (sem gravar)."""
     arquivos = request.files.getlist("imagens")
@@ -458,6 +582,7 @@ def api_ler():
 
 
 @app.post("/api/importar")
+@so_admin
 def api_importar():
     corpo = request.get_json(force=True)
     lista = [c for c in corpo.get("clientes", []) if (c.get("nome") or "").strip()]
@@ -559,6 +684,7 @@ def api_nota(cid):
 
 
 @app.post("/api/ciclo")
+@so_admin
 def api_ciclo_manual():
     with db.conectar() as conn:
         return jsonify(sdr.ciclo(conn, db.config(conn), so_rascunhos=request.args.get("rascunhos") == "1"))

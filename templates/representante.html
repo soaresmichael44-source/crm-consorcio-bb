@@ -22,7 +22,7 @@ th.num{text-align:right}
 </style>
 {% endblock %}
 {% block corpo %}
-<p style="margin:0 0 8px"><a href="/rede" class="muted">← Rede nacional</a></p>
+{% if not rep_logado %}<p style="margin:0 0 8px"><a href="/rede" class="muted">← Rede nacional</a></p>{% endif %}
 <div class="linha" style="align-items:flex-start">
   <div><h1>{{ r.nome }}{% if not r.ativo %} <span class="tag">inativo</span>{% endif %}</h1>
     <p class="sub">Representante · {{ [r.cidade, r.uf]|select|join(' · ') or 'sem cidade' }}{% if r.telefone %} · <a href="https://wa.me/{{ r.telefone }}" target="_blank" rel="noopener">{{ fmt_tel(r.telefone) }}</a>{% endif %}{% if r.email %} · {{ r.email }}{% endif %}</p></div>
@@ -68,6 +68,7 @@ th.num{text-align:right}
               <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ link_cli }}');this.textContent='Copiado!'">Copiar</button></div></div>
         </div>
         <div class="linha" style="margin-top:10px">
+          {% if not rep_logado %}
           <form method="post" action="/gerentes/{{ g.id }}/representante" class="linha" style="margin:0">
             <input type="hidden" name="voltar" value="/rede/representante/{{ r.id }}">
             <label style="margin:0">Passar para</label>
@@ -75,6 +76,7 @@ th.num{text-align:right}
               <option value="{{ r.id }}" selected>{{ r.nome }}</option>{% for o in outros %}<option value="{{ o.id }}">{{ o.nome }}</option>{% endfor %}<option value="">Operação direta (Mobie)</option>
             </select>
           </form>
+          {% endif %}
           <span class="sp"></span>
           <form method="post" action="/gerentes/{{ g.id }}/ativo" style="margin:0" onsubmit="return confirm('Desativar o acesso de {{ g.nome }}? O link para de funcionar na hora.')">
             <input type="hidden" name="voltar" value="/rede/representante/{{ r.id }}"><button class="btn peq">Desativar acesso</button></form>
@@ -103,6 +105,24 @@ th.num{text-align:right}
   <p class="muted" style="margin:10px 0 0;font-size:12px">O gerente ganha na hora o Portal do Gerente e o link de documentos. As listas que ele mandar entram na produção de {{ r.nome.split(' ')[0] }}.</p>
 </form>
 
+{% if not rep_logado %}
+<div class="card" id="acesso">
+  <h2>Acesso de {{ r.nome.split(' ')[0] }} ao CRM</h2>
+  {% if r.senha_hash %}
+  <p class="muted" style="margin-top:0">{{ r.nome.split(' ')[0] }} já tem acesso com o e-mail <strong>{{ r.email }}</strong>{% if r.ultimo_acesso %} · último acesso {{ r.ultimo_acesso|data }}{% endif %}. Ele vê só os gerentes, as listas e os clientes dele. Se ele esquecer a senha, gere um link novo.</p>
+  {% else %}
+  <p class="muted" style="margin-top:0">Gere o link e mande para {{ r.nome.split(' ')[0] }}. Ele abre, confirma o e-mail e cria a própria senha: você nunca precisa saber a senha dele. O link vale 7 dias e funciona uma vez só.</p>
+  {% endif %}
+  {% if convite %}
+  <div class="linha"><input readonly value="{{ convite }}" onclick="this.select()" style="flex:1;font-size:12px">
+    <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ convite }}');this.textContent='Copiado!'">Copiar</button>
+    <a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/{{ r.telefone or '' }}?text={{ ('Olá, ' ~ r.nome.split(' ')[0] ~ '! Este é o seu acesso ao CRM Consórcio BB. Abra o link, confirme o seu e-mail e crie a sua senha (vale 7 dias): ' ~ convite)|urlencode }}">Mandar pelo WhatsApp</a></div>
+  {% else %}
+  <form method="post" style="margin:0"><input type="hidden" name="acao" value="convite">
+    <button class="btn am">{{ 'Gerar link para trocar a senha' if r.senha_hash else 'Gerar link de acesso' }}</button></form>
+  {% endif %}
+</div>
+
 <details class="card">
   <summary style="cursor:pointer;font-weight:700">Dados do representante</summary>
   <form method="post" class="grid g2" style="margin-top:12px">
@@ -116,4 +136,5 @@ th.num{text-align:right}
   <form method="post" style="margin-top:12px" onsubmit="return confirm('{{ 'Desativar' if r.ativo else 'Reativar' }} {{ r.nome }}?')">
     <input type="hidden" name="acao" value="ativo"><button class="btn peq">{{ 'Desativar representante' if r.ativo else 'Reativar representante' }}</button></form>
 </details>
+{% endif %}
 {% endblock %}

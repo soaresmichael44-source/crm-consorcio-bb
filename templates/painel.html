@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block corpo %}
 <div class="linha" style="align-items:flex-start">
-  <div><h1>Painel da operação BB</h1><p class="sub">Clientes vindos exclusivamente das listas do Banco do Brasil.</p></div>
+  <div><h1>{{ 'Olá, ' ~ rep_logado.nome.split(' ')[0] ~ '!' if rep_logado else 'Painel da operação BB' }}</h1><p class="sub">{{ 'Os clientes das listas dos seus gerentes de agência.' if rep_logado else 'Clientes vindos exclusivamente das listas do Banco do Brasil.' }}</p></div>
   <span class="sp"></span>
-  <a class="btn am" href="/importar">+ Importar lista</a>
+  {% if not rep_logado %}<a class="btn am" href="/importar">+ Importar lista</a>{% endif %}
   <a class="btn pri" href="/fila">Fila de hoje ({{ fila_n }})</a>
 </div>
 
@@ -41,7 +41,7 @@
   </div>
   <div class="card">
     <div class="linha"><h2 style="margin:0">Últimos contatos</h2><span class="sp"></span>
-      <button class="btn peq" id="btnCiclo">Rodar cadência agora</button></div>
+      {% if not rep_logado %}<button class="btn peq" id="btnCiclo">Rodar cadência agora</button>{% endif %}</div>
     <div id="cicloSt" class="muted" style="margin:8px 0"></div>
     {% for i in ultimas %}
       <div style="padding:8px 0;border-bottom:1px solid var(--borda)">
@@ -56,7 +56,7 @@
       <div class="linha muted" style="padding:4px 0">
         <span>#{{ l.id }} · {{ l.criado_em|data }} · {{ l.qtd_clientes }} clientes{% if l.descricao and not l.gerente_id %} · {{ l.descricao }}{% endif %}</span>
         <span class="sp"></span>
-        {% if gerentes %}
+        {% if gerentes and not rep_logado %}
         <select style="width:auto;padding:4px 8px;font-size:12px" title="Gerente que indicou esta lista" onchange="api('/api/lote/{{ l.id }}/gerente', {gerente_id: this.value}).then(() => this.style.borderColor = 'var(--verde)')">
           <option value="">{{ 'Sem gerente' if l.gerente_id else 'Atribuir ao gerente…' }}</option>
           {% for g in gerentes %}<option value="{{ g.id }}" {{ 'selected' if g.id == l.gerente_id }}>📷 {{ g.nome }}</option>{% endfor %}
@@ -69,7 +69,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-document.getElementById('btnCiclo').onclick = async (ev) => {
+if (document.getElementById('btnCiclo')) document.getElementById('btnCiclo').onclick = async (ev) => {
   ev.target.disabled = true; const st = document.getElementById('cicloSt'); st.textContent = 'Rodando…';
   try { const r = await api('/api/ciclo');
     st.textContent = r.fora_do_horario ? 'Fora do horário de envio — nada foi enviado.' :
