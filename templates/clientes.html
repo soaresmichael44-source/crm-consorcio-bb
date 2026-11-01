@@ -7,11 +7,18 @@
   <input name="q" value="{{ busca }}" placeholder="Buscar por nome, telefone, e-mail ou cidade" style="flex:2;min-width:200px">
   <select name="etapa" style="flex:1;min-width:160px"><option value="">Todas as etapas</option>
     {% for k, n in ETAPAS %}<option value="{{ k }}" {{ 'selected' if k == etapa }}>{{ n }}</option>{% endfor %}</select>
+  {% if reps or gers %}
+  <select name="rep" style="flex:1;min-width:160px"><option value="">Todos os representantes</option>
+    <option value="0" {{ 'selected' if rep_id == 0 }}>Operação direta (Mobie)</option>
+    {% for r in reps %}<option value="{{ r.id }}" {{ 'selected' if r.id == rep_id }}>{{ r.nome }}</option>{% endfor %}</select>
+  <select name="gerente" style="flex:1;min-width:160px"><option value="">Todos os gerentes</option>
+    {% for g in gers if not rep_id or g.representante_id == rep_id %}<option value="{{ g.id }}" {{ 'selected' if g.id == ger_id }}>{{ g.nome }}{% if g.agencia %} · ag. {{ g.agencia }}{% endif %}</option>{% endfor %}</select>
+  {% endif %}
   <button class="btn pri">Filtrar</button>
 </form>
 <div class="card tabela-scroll">
 <table>
-  <thead><tr><th>Nome</th><th>Telefone</th><th>Produto</th><th>Crédito</th><th>Situação BB</th><th>Etapa</th><th>Contatos</th><th>Próximo</th></tr></thead>
+  <thead><tr><th>Nome</th><th>Telefone</th><th>Produto</th><th>Crédito</th><th>Gerente / representante</th><th>Etapa</th><th>Contatos</th><th>Próximo</th></tr></thead>
   <tbody>
   {% for c in clientes %}
     <tr onclick="location='/cliente/{{ c.id }}'" style="cursor:pointer">
@@ -19,7 +26,7 @@
       <td>{{ fmt_tel(c.telefone) or '—' }}</td>
       <td>{{ c.produto or '—' }}</td>
       <td>{{ c.valor_credito|dinheiro }}</td>
-      <td class="muted">{{ c.situacao_bb or '—' }}</td>
+      <td class="muted">{% if c.gerente_nome %}{{ c.gerente_nome }}<br><small>{{ c.rep_nome or 'Direto (Mobie)' }}</small>{% else %}—{% endif %}</td>
       <td><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span></td>
       <td>{{ c.tentativas }}</td>
       <td class="muted">{{ c.proximo_contato|data }}</td>

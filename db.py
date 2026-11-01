@@ -78,6 +78,17 @@ CREATE TABLE IF NOT EXISTS config (
     chave TEXT PRIMARY KEY,
     valor TEXT
 );
+-- Representantes da rede: cada um fecha parcerias com gerentes de agência pelo Brasil.
+CREATE TABLE IF NOT EXISTS representantes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    telefone TEXT,
+    email TEXT,
+    cidade TEXT,
+    uf TEXT,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    criado_em TEXT NOT NULL
+);
 -- Gerentes do banco (Portal do Gerente, link com token).
 CREATE TABLE IF NOT EXISTS gerentes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,7 +146,34 @@ MIGRACOES = [
     ("pacotes_docs", "origem", "TEXT"),            # consultor | cliente
     ("pacotes_docs", "cliente_telefone", "TEXT"),
     ("pacotes_docs", "visto_consultor", "INTEGER NOT NULL DEFAULT 0"),  # aviso no Painel do CRM
+    # Rede nacional: o gerente pertence a um representante (vazio = operação direta da Mobie).
+    ("gerentes", "representante_id", "INTEGER REFERENCES representantes(id)"),
+    ("gerentes", "cidade", "TEXT"),
+    ("gerentes", "uf", "TEXT"),
+    ("gerentes", "telefone", "TEXT"),
 ]
+
+def producao_gerentes(conn):
+    """Uma linha por gerente com a produção das listas dele (base da tela Rede)."""
+    rows = conn.execute(
+        "SELECT g.id, g.nome, g.agencia, g.cidade, g.uf, g.telefone, g.representante_id, g.ativo, g.token, "
+        "g.ultimo_envio, COUNT(DISTINCT l.id) AS listas, COUNT(c.id) AS clientes, "
+        "SUM(CASE WHEN c.etapa <> 'novo' THEN 1 ELSE 0 END) AS contatados, "
+        "SUM(CASE WHEN c.etapa IN ('respondeu', 'negociando', 'documentacao', 'vendido') THEN 1 ELSE 0 END) AS interessados, "
+        "SUM(CASE WHEN c.etapa = 'vendido' THEN 1 ELSE 0 END) AS fechados, "
+        "SUM(CASE WHEN c.etapa = 'vendido' THEN COALESCE(c.valor_credito, 0) ELSE 0 END) AS credito_fechado, "
+        "SUM(CASE WHEN c.etapa IN ('respondeu', 'negociando', 'documentacao') THEN COALESCE(c.valor_credito, 0) ELSE 0 END) AS credito_andamento "
+        "FROM gerentes g LEFT JOIN lotes l ON l.gerente_id = g.id LEFT JOIN clientes c ON c.lote_id = l.id "
+        "GROUP BY g.id ORDER BY g.nome").fetchall()
+    campos = ("listas", "clientes", "contatados", "interessados", "fechados", "credito_fechado", "credito_andamento")
+    return [{**dict(r), **{k: r[k] or 0 for k in campos}} for r in rows]
+
+
+def somar_producao(itens):
+    total = {k: sum(i[k] for i in itens) for k in
+             ("listas", "clientes", "contatados", "interessados", "fechados", "credito_fechado", "credito_andamento")}
+    total["conversao"] = round(100 * total["fechados"] / total["clientes"], 1) if total["clientes"] else 0
+    return total
 
 CONFIG_PADRAO = {
     "nome_consultor": "Michael",

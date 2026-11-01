@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block titulo %}Rede nacional{% endblock %}
+{% block head %}
+<style>
+.placar{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.placar .card{margin:0;padding:14px 16px}
+.placar .n{font-size:24px;font-weight:800;color:var(--azul)}
+.placar .l{font-size:12px;color:var(--suave)}
+.placar .ouro{background:var(--amarelo);border-color:var(--amarelo)}
+.placar .ouro .l{color:#5a4a00}
+.rank td{vertical-align:middle}
+.rank .pos{width:28px;font-weight:800;color:var(--suave)}
+.rank .nome a{font-weight:700;color:var(--texto)}
+.rank .loc{font-size:12px;color:var(--suave)}
+.num{text-align:right;white-space:nowrap}
+th.num{text-align:right}
+.barra{height:6px;border-radius:4px;background:#eef1f8;overflow:hidden;margin-top:5px;min-width:80px}
+.barra i{display:block;height:100%;background:var(--verde)}
+.inativo td{opacity:.5}
+.novo-rep{display:grid;grid-template-columns:2fr 1.2fr 1.4fr 1.2fr 90px auto;gap:8px;align-items:end}
+@media (max-width:860px){.novo-rep{grid-template-columns:1fr 1fr}}
+</style>
+{% endblock %}
+{% block corpo %}
+<div class="linha" style="align-items:flex-start">
+  <div><h1>Rede nacional</h1>
+    <p class="sub">Representantes, os gerentes de agência que cada um trouxe e a produção de cada lista.</p></div>
+  <span class="sp"></span>
+  <form method="get" class="linha" style="margin:0">
+    <select name="uf" onchange="this.form.submit()" style="width:auto">
+      <option value="">Brasil inteiro</option>
+      {% for e in estados %}<option value="{{ e }}" {{ 'selected' if e == uf }}>{{ e }}</option>{% endfor %}
+    </select>
+  </form>
+  <a class="btn am" href="#novo">+ Representante</a>
+</div>
+
+<div class="placar">
+  <div class="card"><div class="n">{{ qtd_reps }}</div><div class="l">representantes ativos</div></div>
+  <div class="card"><div class="n">{{ qtd_gerentes }}</div><div class="l">gerentes de agência</div></div>
+  <div class="card"><div class="n">{{ total.clientes }}</div><div class="l">clientes nas listas</div></div>
+  <div class="card"><div class="n">{{ total.interessados }}</div><div class="l">interessados</div></div>
+  <div class="card"><div class="n">{{ total.fechados }}</div><div class="l">cartas fechadas · {{ total.conversao|string|replace('.', ',') }}% de conversão</div></div>
+  <div class="card ouro"><div class="n">{{ total.credito_fechado|compacto }}</div><div class="l">crédito fechado · {{ total.credito_andamento|compacto }} em negociação</div></div>
+</div>
+
+<div class="card tabela-scroll">
+  <h2>Ranking dos representantes</h2>
+  {% set maior = (reps|map(attribute='prod')|map(attribute='credito_fechado')|max) if reps else 0 %}
+  <table class="rank">
+    <thead><tr><th></th><th>Representante</th><th class="num">Gerentes</th><th class="num">Listas</th><th class="num">Clientes</th>
+      <th class="num">Interessados</th><th class="num">Fechados</th><th class="num">Conversão</th><th>Crédito fechado</th></tr></thead>
+    <tbody>
+    {% for r in reps %}
+      <tr class="{{ '' if r.ativo else 'inativo' }}" onclick="location='/rede/representante/{{ r.id }}'" style="cursor:pointer">
+        <td class="pos">{{ loop.index }}º</td>
+        <td class="nome"><a href="/rede/representante/{{ r.id }}">{{ r.nome }}</a>{% if not r.ativo %} <span class="tag">inativo</span>{% endif %}
+          <div class="loc">{{ [r.cidade, r.uf]|select|join(' · ') or 'sem cidade' }}</div></td>
+        <td class="num">{{ r.gerentes|length }}</td>
+        <td class="num">{{ r.prod.listas }}</td>
+        <td class="num">{{ r.prod.clientes }}</td>
+        <td class="num">{{ r.prod.interessados }}</td>
+        <td class="num"><strong>{{ r.prod.fechados }}</strong></td>
+        <td class="num">{{ r.prod.conversao|string|replace('.', ',') }}%</td>
+        <td><strong>{{ r.prod.credito_fechado|compacto }}</strong>
+          <div class="barra"><i style="width:{{ (100 * r.prod.credito_fechado / maior) if maior else 0 }}%"></i></div></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="9" class="muted">Nenhum representante ainda. Cadastre o primeiro logo abaixo.</td></tr>
+    {% endfor %}
+    {% if diretos %}
+      <tr onclick="location='/clientes?rep=0'" style="cursor:pointer">
+        <td class="pos">—</td>
+        <td class="nome"><strong>Operação direta (Mobie)</strong><div class="loc">gerentes sem representante</div></td>
+        <td class="num">{{ diretos|length }}</td><td class="num">{{ diretos_prod.listas }}</td><td class="num">{{ diretos_prod.clientes }}</td>
+        <td class="num">{{ diretos_prod.interessados }}</td><td class="num"><strong>{{ diretos_prod.fechados }}</strong></td>
+        <td class="num">{{ diretos_prod.conversao|string|replace('.', ',') }}%</td><td><strong>{{ diretos_prod.credito_fechado|compacto }}</strong></td>
+      </tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if top_gerentes %}
+<div class="card tabela-scroll">
+  <h2>Gerentes que mais produzem</h2>
+  <table class="rank">
+    <thead><tr><th></th><th>Gerente</th><th>Representante</th><th class="num">Clientes</th><th class="num">Interessados</th><th class="num">Fechados</th><th class="num">Crédito fechado</th></tr></thead>
+    <tbody>
+    {% for g in top_gerentes %}
+      <tr onclick="location='/clientes?gerente={{ g.id }}'" style="cursor:pointer">
+        <td class="pos">{{ loop.index }}º</td>
+        <td class="nome"><strong>{{ g.nome }}</strong><div class="loc">{{ ['ag. ' ~ g.agencia if g.agencia else '', g.cidade, g.uf]|select|join(' · ') }}</div></td>
+        <td>{{ nomes_rep.get(g.representante_id, 'Direto (Mobie)') }}</td>
+        <td class="num">{{ g.clientes }}</td><td class="num">{{ g.interessados }}</td><td class="num"><strong>{{ g.fechados }}</strong></td>
+        <td class="num"><strong>{{ g.credito_fechado|compacto }}</strong></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<form class="card" id="novo" method="post" action="/rede/representantes/novo">
+  <h2>Cadastrar representante</h2>
+  <div class="novo-rep">
+    <div><label>Nome</label><input name="nome" required placeholder="Ex.: João Pereira"></div>
+    <div><label>WhatsApp</label><input name="telefone" inputmode="tel" placeholder="(31) 99999-8888"></div>
+    <div><label>E-mail</label><input name="email" type="email" placeholder="joao@exemplo.com"></div>
+    <div><label>Cidade</label><input name="cidade" placeholder="Belo Horizonte"></div>
+    <div><label>UF</label><select name="uf"><option value="">—</option>{% for e in UFS %}<option>{{ e }}</option>{% endfor %}</select></div>
+    <div><button class="btn am">Cadastrar</button></div>
+  </div>
+  <p class="muted" style="margin:10px 0 0;font-size:12px">Depois de cadastrar, abra o representante para incluir os gerentes de agência que ele fechou. Cada gerente ganha o próprio Portal do Gerente e o link de documentos para os clientes.</p>
+</form>
+{% endblock %}

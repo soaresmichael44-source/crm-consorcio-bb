@@ -100,6 +100,17 @@ def _globais():
     return {"ETAPAS": db.ETAPAS, "ETAPAS_DICT": db.ETAPAS_DICT, "fmt_tel": db.telefone_formatado, "fmt_cpf": db.cpf_formatado}
 
 
+@app.template_filter("compacto")
+def _compacto(v):
+    """R$ 1,2 mi / R$ 350 mil: para os placares da Rede."""
+    v = v or 0
+    if v >= 1_000_000:
+        return f"R$ {v / 1_000_000:.1f} mi".replace(".", ",")
+    if v >= 1000:
+        return f"R$ {v / 1000:.0f} mil"
+    return f"R$ {v:.0f}"
+
+
 @app.template_filter("dinheiro")
 def _dinheiro(v):
     if v in (None, ""):
@@ -160,16 +171,31 @@ def importar():
 def clientes():
     etapa = request.args.get("etapa", "")
     busca = request.args.get("q", "").strip()
-    sql, args = "SELECT * FROM clientes WHERE 1=1", []
+    rep_id = request.args.get("rep", type=int)
+    ger_id = request.args.get("gerente", type=int)
+    sql, args = ("SELECT c.*, g.nome AS gerente_nome, r.nome AS rep_nome FROM clientes c "
+                 "LEFT JOIN lotes l ON l.id = c.lote_id LEFT JOIN gerentes g ON g.id = l.gerente_id "
+                 "LEFT JOIN representantes r ON r.id = g.representante_id WHERE 1=1"), []
+    if rep_id == 0:  # operação direta: gerentes sem representante
+        sql += " AND g.id IS NOT NULL AND g.representante_id IS NULL"
+    elif rep_id:
+        sql += " AND g.representante_id = ?"
+        args.append(rep_id)
+    if ger_id:
+        sql += " AND g.id = ?"
+        args.append(ger_id)
     if etapa:
-        sql += " AND etapa = ?"
+        sql += " AND c.etapa = ?"
         args.append(etapa)
     if busca:
-        sql += " AND (nome LIKE ? OR telefone LIKE ? OR email LIKE ? OR cidade LIKE ?)"
+        sql += " AND (c.nome LIKE ? OR c.telefone LIKE ? OR c.email LIKE ? OR c.cidade LIKE ?)"
         args += [f"%{busca}%"] * 4
     with db.conectar() as conn:
-        rows = conn.execute(sql + " ORDER BY atualizado_em DESC LIMIT 500", args).fetchall()
-    return render_template("clientes.html", clientes=rows, etapa=etapa, busca=busca)
+        rows = conn.execute(sql + " ORDER BY c.atualizado_em DESC LIMIT 500", args).fetchall()
+        reps = conn.execute("SELECT id, nome FROM representantes ORDER BY nome").fetchall()
+        gers = conn.execute("SELECT id, nome, agencia, representante_id FROM gerentes ORDER BY nome").fetchall()
+    return render_template("clientes.html", clientes=rows, etapa=etapa, busca=busca, reps=reps, gers=gers,
+                           rep_id=rep_id, ger_id=ger_id)
 
 
 @app.route("/cliente/<int:cid>")
@@ -216,14 +242,98 @@ def configuracoes():
                                ia_ok=bool(ia.API_KEY), url_ponte=sdr.URL_PONTE)
 
 
-@app.post("/gerentes/novo")
-def gerente_novo():
-    nome = request.form.get("nome", "").strip()
+# ------------------------------------------------------------ Rede nacional
+
+UFS = ["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI",
+       "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]
+
+
+def _voltar(padrao):
+    destino = request.form.get("voltar") or padrao
+    return destino if destino.startswith("/") and not destino.startswith("//") else padrao
+
+
+@app.route("/rede")
+def rede():
+    uf = request.args.get("uf", "")
+    with db.conectar() as conn:
+        reps = [dict(r) for r in conn.execute("SELECT * FROM representantes ORDER BY ativo DESC, nome")]
+        gers = db.producao_gerentes(conn)
+    if uf:
+        gers = [g for g in gers if g["uf"] == uf]
+    for r in reps:
+        r["gerentes"] = [g for g in gers if g["representante_id"] == r["id"]]
+        r["prod"] = db.somar_producao(r["gerentes"])
+    if uf:
+        reps = [r for r in reps if r["gerentes"] or r["uf"] == uf]
+    diretos = [g for g in gers if not g["representante_id"]]
+    total = db.somar_producao(gers)
+    estados = sorted({g["uf"] for g in gers if g["uf"]})
+    reps.sort(key=lambda r: (-r["prod"]["credito_fechado"], -r["prod"]["interessados"], r["nome"]))
+    top_gerentes = sorted((g for g in gers if g["clientes"]), key=lambda g: (-g["credito_fechado"], -g["interessados"]))[:10]
+    nomes_rep = {r["id"]: r["nome"] for r in reps}
+    return render_template("rede.html", reps=reps, diretos=diretos, diretos_prod=db.somar_producao(diretos),
+                           total=total, estados=estados, uf=uf, UFS=UFS, top_gerentes=top_gerentes, nomes_rep=nomes_rep,
+                           qtd_gerentes=len(gers), qtd_reps=sum(1 for r in reps if r["ativo"]))
+
+
+@app.post("/rede/representantes/novo")
+def representante_novo():
+    nome = " ".join(request.form.get("nome", "").split())
     if nome:
         with db.conectar() as conn:
-            conn.execute("INSERT INTO gerentes (nome, agencia, token, criado_em) VALUES (?, ?, ?, ?)",
-                         (nome, request.form.get("agencia", "").strip(), secrets.token_urlsafe(24), db.agora()))
-    return redirect(url_for("configuracoes") + "#gerentes")
+            conn.execute("INSERT INTO representantes (nome, telefone, email, cidade, uf, criado_em) VALUES (?, ?, ?, ?, ?, ?)",
+                         (nome, db.normalizar_telefone(request.form.get("telefone")) or None,
+                          request.form.get("email", "").strip() or None, request.form.get("cidade", "").strip() or None,
+                          request.form.get("uf", "").strip().upper() or None, db.agora()))
+    return redirect(url_for("rede"))
+
+
+@app.route("/rede/representante/<int:rid>", methods=["GET", "POST"])
+def representante(rid):
+    with db.conectar() as conn:
+        r = conn.execute("SELECT * FROM representantes WHERE id = ?", (rid,)).fetchone()
+        if not r:
+            abort(404)
+        if request.method == "POST":  # editar dados ou ativar/desativar
+            if request.form.get("acao") == "ativo":
+                conn.execute("UPDATE representantes SET ativo = ? WHERE id = ?", (0 if r["ativo"] else 1, rid))
+            else:
+                conn.execute("UPDATE representantes SET nome = ?, telefone = ?, email = ?, cidade = ?, uf = ? WHERE id = ?",
+                             (" ".join(request.form.get("nome", "").split()) or r["nome"],
+                              db.normalizar_telefone(request.form.get("telefone")) or None,
+                              request.form.get("email", "").strip() or None, request.form.get("cidade", "").strip() or None,
+                              request.form.get("uf", "").strip().upper() or None, rid))
+            return redirect(url_for("representante", rid=rid))
+        gers = [g for g in db.producao_gerentes(conn) if g["representante_id"] == rid]
+        token_docs = {g["id"]: db.token_docs_do_gerente(conn, g["id"]) for g in gers if g["ativo"]}
+        outros = conn.execute("SELECT id, nome FROM representantes WHERE ativo = 1 AND id <> ? ORDER BY nome", (rid,)).fetchall()
+    gers.sort(key=lambda g: (-g["ativo"], -g["credito_fechado"], -g["interessados"], g["nome"]))
+    return render_template("representante.html", r=r, gerentes=gers, prod=db.somar_producao(gers), UFS=UFS,
+                           url_gerente=url_publica_gerente(), token_docs=token_docs, outros=outros)
+
+
+@app.post("/gerentes/novo")
+def gerente_novo():
+    nome = " ".join(request.form.get("nome", "").split())
+    rid = request.form.get("representante_id") or None
+    if nome:
+        with db.conectar() as conn:
+            conn.execute(
+                "INSERT INTO gerentes (nome, agencia, token, criado_em, representante_id, cidade, uf, telefone) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (nome, request.form.get("agencia", "").strip(), secrets.token_urlsafe(24), db.agora(), rid,
+                 request.form.get("cidade", "").strip() or None, request.form.get("uf", "").strip().upper() or None,
+                 db.normalizar_telefone(request.form.get("telefone")) or None))
+    return redirect(_voltar(url_for("configuracoes") + "#gerentes"))
+
+
+@app.post("/gerentes/<int:gid>/representante")
+def gerente_representante(gid):
+    """Passa um gerente para outro representante (ou para a operação direta)."""
+    with db.conectar() as conn:
+        conn.execute("UPDATE gerentes SET representante_id = ? WHERE id = ?", (request.form.get("representante_id") or None, gid))
+    return redirect(_voltar(url_for("rede")))
 
 
 @app.post("/gerentes/<int:gid>/ativo")
@@ -235,7 +345,7 @@ def gerente_ativo(gid):
             conn.execute("UPDATE gerentes SET ativo = 0 WHERE id = ?", (gid,))
         elif g:
             conn.execute("UPDATE gerentes SET ativo = 1, token = ? WHERE id = ?", (secrets.token_urlsafe(24), gid))
-    return redirect(url_for("configuracoes") + "#gerentes")
+    return redirect(_voltar(url_for("configuracoes") + "#gerentes"))
 
 
 @app.post("/api/lote/<int:lid>/gerente")

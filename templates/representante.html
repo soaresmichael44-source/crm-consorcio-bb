@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block titulo %}{{ r.nome }} · Rede{% endblock %}
+{% block head %}
+<style>
+.placar{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
+.placar .card{margin:0;padding:14px 16px}
+.placar .n{font-size:24px;font-weight:800;color:var(--azul)}
+.placar .l{font-size:12px;color:var(--suave)}
+.placar .ouro{background:var(--amarelo);border-color:var(--amarelo)}
+.placar .ouro .l{color:#5a4a00}
+.num{text-align:right;white-space:nowrap}
+th.num{text-align:right}
+.ger td{vertical-align:middle}
+.ger .loc{font-size:12px;color:var(--suave)}
+.inativo td{opacity:.5}
+.links{display:none;background:#f7f9fd}
+.links.aberto{display:table-row}
+.links td{padding:12px}
+.links input{font-size:12px}
+.form-ger{display:grid;grid-template-columns:1.6fr 1fr 1.3fr 80px 1.2fr auto;gap:8px;align-items:end}
+@media (max-width:860px){.form-ger{grid-template-columns:1fr 1fr}}
+</style>
+{% endblock %}
+{% block corpo %}
+<p style="margin:0 0 8px"><a href="/rede" class="muted">← Rede nacional</a></p>
+<div class="linha" style="align-items:flex-start">
+  <div><h1>{{ r.nome }}{% if not r.ativo %} <span class="tag">inativo</span>{% endif %}</h1>
+    <p class="sub">Representante · {{ [r.cidade, r.uf]|select|join(' · ') or 'sem cidade' }}{% if r.telefone %} · <a href="https://wa.me/{{ r.telefone }}" target="_blank" rel="noopener">{{ fmt_tel(r.telefone) }}</a>{% endif %}{% if r.email %} · {{ r.email }}{% endif %}</p></div>
+  <span class="sp"></span>
+  <a class="btn" href="/clientes?rep={{ r.id }}">Ver clientes</a>
+  <a class="btn am" href="#novo-gerente">+ Gerente de agência</a>
+</div>
+
+<div class="placar">
+  <div class="card"><div class="n">{{ gerentes|selectattr('ativo')|list|length }}</div><div class="l">gerentes ativos</div></div>
+  <div class="card"><div class="n">{{ prod.listas }}</div><div class="l">listas recebidas</div></div>
+  <div class="card"><div class="n">{{ prod.clientes }}</div><div class="l">clientes</div></div>
+  <div class="card"><div class="n">{{ prod.interessados }}</div><div class="l">interessados</div></div>
+  <div class="card"><div class="n">{{ prod.fechados }}</div><div class="l">fechados · {{ prod.conversao|string|replace('.', ',') }}%</div></div>
+  <div class="card ouro"><div class="n">{{ prod.credito_fechado|compacto }}</div><div class="l">crédito fechado · {{ prod.credito_andamento|compacto }} em negociação</div></div>
+</div>
+
+<div class="card tabela-scroll">
+  <h2>Gerentes de agência de {{ r.nome.split(' ')[0] }}</h2>
+  {% set base = url_gerente or 'http://localhost:8096' %}
+  <table class="ger">
+    <thead><tr><th>Gerente</th><th class="num">Listas</th><th class="num">Clientes</th><th class="num">Interessados</th><th class="num">Fechados</th><th class="num">Crédito fechado</th><th>Última lista</th><th></th></tr></thead>
+    <tbody>
+    {% for g in gerentes %}
+      <tr class="{{ '' if g.ativo else 'inativo' }}">
+        <td><a href="/clientes?gerente={{ g.id }}"><strong>{{ g.nome }}</strong></a>
+          <div class="loc">{{ ['ag. ' ~ g.agencia if g.agencia else '', g.cidade, g.uf]|select|join(' · ') or '—' }}</div></td>
+        <td class="num">{{ g.listas }}</td><td class="num">{{ g.clientes }}</td><td class="num">{{ g.interessados }}</td>
+        <td class="num"><strong>{{ g.fechados }}</strong></td><td class="num"><strong>{{ g.credito_fechado|compacto }}</strong></td>
+        <td class="muted">{{ g.ultimo_envio|data if g.ultimo_envio else 'nenhuma ainda' }}</td>
+        <td class="num">{% if g.ativo %}<button class="btn peq" type="button" onclick="document.getElementById('l{{ g.id }}').classList.toggle('aberto')">Links</button>{% endif %}</td>
+      </tr>
+      {% if g.ativo %}
+      {% set link = base ~ '/g/' ~ g.token %}{% set link_cli = base ~ '/d/' ~ token_docs[g.id] %}
+      <tr class="links" id="l{{ g.id }}"><td colspan="8">
+        <div class="grid g2">
+          <div><label>Portal do Gerente (só para {{ g.nome.split(' ')[0] }})</label>
+            <div class="linha"><input readonly value="{{ link }}" onclick="this.select()" style="flex:1">
+              <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ link }}');this.textContent='Copiado!'">Copiar</button>
+              <a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/{{ g.telefone or '' }}?text={{ ('Olá, ' ~ g.nome.split(' ')[0] ~ '! Este é o seu acesso para enviar as listas do Consórcio BB e acompanhar as suas indicações: ' ~ link)|urlencode }}">WhatsApp</a></div></div>
+          <div><label>Link dos clientes (documentos direto para {{ g.nome.split(' ')[0] }})</label>
+            <div class="linha"><input readonly value="{{ link_cli }}" onclick="this.select()" style="flex:1">
+              <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ link_cli }}');this.textContent='Copiado!'">Copiar</button></div></div>
+        </div>
+        <div class="linha" style="margin-top:10px">
+          <form method="post" action="/gerentes/{{ g.id }}/representante" class="linha" style="margin:0">
+            <input type="hidden" name="voltar" value="/rede/representante/{{ r.id }}">
+            <label style="margin:0">Passar para</label>
+            <select name="representante_id" style="width:auto" onchange="if(confirm('Passar {{ g.nome }} para outro representante?')) this.form.submit()">
+              <option value="{{ r.id }}" selected>{{ r.nome }}</option>{% for o in outros %}<option value="{{ o.id }}">{{ o.nome }}</option>{% endfor %}<option value="">Operação direta (Mobie)</option>
+            </select>
+          </form>
+          <span class="sp"></span>
+          <form method="post" action="/gerentes/{{ g.id }}/ativo" style="margin:0" onsubmit="return confirm('Desativar o acesso de {{ g.nome }}? O link para de funcionar na hora.')">
+            <input type="hidden" name="voltar" value="/rede/representante/{{ r.id }}"><button class="btn peq">Desativar acesso</button></form>
+        </div>
+      </td></tr>
+      {% endif %}
+    {% else %}
+      <tr><td colspan="8" class="muted">{{ r.nome.split(' ')[0] }} ainda não tem gerentes cadastrados.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<form class="card" id="novo-gerente" method="post" action="/gerentes/novo">
+  <h2>Incluir gerente de agência</h2>
+  <input type="hidden" name="representante_id" value="{{ r.id }}">
+  <input type="hidden" name="voltar" value="/rede/representante/{{ r.id }}">
+  <div class="form-ger">
+    <div><label>Nome do gerente</label><input name="nome" required placeholder="Ex.: Lucas Andrade"></div>
+    <div><label>Agência</label><input name="agencia" placeholder="Ex.: 1234-5 Savassi"></div>
+    <div><label>Cidade</label><input name="cidade" value="{{ r.cidade or '' }}"></div>
+    <div><label>UF</label><select name="uf"><option value="">—</option>{% for e in UFS %}<option {{ 'selected' if e == r.uf }}>{{ e }}</option>{% endfor %}</select></div>
+    <div><label>WhatsApp do gerente</label><input name="telefone" inputmode="tel" placeholder="(31) 99999-8888"></div>
+    <div><button class="btn am">Incluir</button></div>
+  </div>
+  <p class="muted" style="margin:10px 0 0;font-size:12px">O gerente ganha na hora o Portal do Gerente e o link de documentos. As listas que ele mandar entram na produção de {{ r.nome.split(' ')[0] }}.</p>
+</form>
+
+<details class="card">
+  <summary style="cursor:pointer;font-weight:700">Dados do representante</summary>
+  <form method="post" class="grid g2" style="margin-top:12px">
+    <div><label>Nome</label><input name="nome" value="{{ r.nome }}" required></div>
+    <div><label>WhatsApp</label><input name="telefone" value="{{ fmt_tel(r.telefone) if r.telefone else '' }}"></div>
+    <div><label>E-mail</label><input name="email" type="email" value="{{ r.email or '' }}"></div>
+    <div class="linha"><div style="flex:2"><label>Cidade</label><input name="cidade" value="{{ r.cidade or '' }}"></div>
+      <div style="flex:1"><label>UF</label><select name="uf"><option value="">—</option>{% for e in UFS %}<option {{ 'selected' if e == r.uf }}>{{ e }}</option>{% endfor %}</select></div></div>
+    <div class="linha"><button class="btn pri">Salvar</button></div>
+  </form>
+  <form method="post" style="margin-top:12px" onsubmit="return confirm('{{ 'Desativar' if r.ativo else 'Reativar' }} {{ r.nome }}?')">
+    <input type="hidden" name="acao" value="ativo"><button class="btn peq">{{ 'Desativar representante' if r.ativo else 'Reativar representante' }}</button></form>
+</details>
+{% endblock %}
