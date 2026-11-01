@@ -189,6 +189,22 @@ def consultor_do_gerente(conn, gerente, cfg):
     return r["nome"] if r else cfg["nome_consultor"]
 
 
+def producao_gerentes(conn):
+    """Uma linha por gerente com a produção das listas dele (base da tela Rede)."""
+    rows = conn.execute(
+        "SELECT g.id, g.nome, g.agencia, g.cidade, g.uf, g.telefone, g.representante_id, g.ativo, g.token, "
+        "g.ultimo_envio, COUNT(DISTINCT l.id) AS listas, COUNT(c.id) AS clientes, "
+        "SUM(CASE WHEN c.etapa <> 'novo' THEN 1 ELSE 0 END) AS contatados, "
+        "SUM(CASE WHEN c.etapa IN ('respondeu', 'negociando', 'documentacao', 'vendido') THEN 1 ELSE 0 END) AS interessados, "
+        "SUM(CASE WHEN c.etapa = 'vendido' THEN 1 ELSE 0 END) AS fechados, "
+        "SUM(CASE WHEN c.etapa = 'vendido' THEN COALESCE(c.valor_credito, 0) ELSE 0 END) AS credito_fechado, "
+        "SUM(CASE WHEN c.etapa IN ('respondeu', 'negociando', 'documentacao') THEN COALESCE(c.valor_credito, 0) ELSE 0 END) AS credito_andamento "
+        "FROM gerentes g LEFT JOIN lotes l ON l.gerente_id = g.id LEFT JOIN clientes c ON c.lote_id = l.id "
+        "GROUP BY g.id ORDER BY g.nome").fetchall()
+    campos = ("listas", "clientes", "contatados", "interessados", "fechados", "credito_fechado", "credito_andamento")
+    return [{**dict(r), **{k: r[k] or 0 for k in campos}} for r in rows]
+
+
 def somar_producao(itens):
     total = {k: sum(i[k] for i in itens) for k in
              ("listas", "clientes", "contatados", "interessados", "fechados", "credito_fechado", "credito_andamento")}
