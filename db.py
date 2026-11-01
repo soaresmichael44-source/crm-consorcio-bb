@@ -156,7 +156,22 @@ MIGRACOES = [
     ("representantes", "convite_token", "TEXT"),
     ("representantes", "convite_expira", "TEXT"),
     ("representantes", "ultimo_acesso", "TEXT"),
+    # Cliente de agência com representante que se interessou: sai do follow-up central e vai para ele atender.
+    ("clientes", "repasse_em", "TEXT"),
+    ("clientes", "repasse_visto", "INTEGER NOT NULL DEFAULT 0"),
 ]
+
+ETAPAS_REPASSE = ("respondeu", "negociando", "documentacao")
+# Lotes de gerentes que têm representante: o interesse desses clientes é atendido pelo representante.
+SQL_LOTES_COM_REP = ("SELECT l3.id FROM lotes l3 JOIN gerentes g3 ON g3.id = l3.gerente_id "
+                     "WHERE g3.representante_id IS NOT NULL")
+
+
+def repassar_se_interessado(conn, cliente_id):
+    """Marca a hora em que o cliente interessado passou para o representante (uma vez só)."""
+    conn.execute(
+        "UPDATE clientes SET repasse_em = ?, repasse_visto = 0 WHERE id = ? AND repasse_em IS NULL "
+        f"AND etapa IN {ETAPAS_REPASSE} AND lote_id IN ({SQL_LOTES_COM_REP})", (agora(), cliente_id))
 
 
 def filtro_rep(rep_id, coluna_lote="c.lote_id"):
@@ -172,27 +187,6 @@ def consultor_do_gerente(conn, gerente, cfg):
     r = conn.execute("SELECT nome FROM representantes WHERE id = ?", (gerente["representante_id"],)).fetchone() \
         if gerente["representante_id"] else None
     return r["nome"] if r else cfg["nome_consultor"]
-
-
-def representante_do_cliente(conn, cliente_id):
-    return conn.execute(
-        "SELECT r.* FROM clientes c JOIN lotes l ON l.id = c.lote_id JOIN gerentes g ON g.id = l.gerente_id "
-        "JOIN representantes r ON r.id = g.representante_id WHERE c.id = ?", (cliente_id,)).fetchone()
-
-def producao_gerentes(conn):
-    """Uma linha por gerente com a produção das listas dele (base da tela Rede)."""
-    rows = conn.execute(
-        "SELECT g.id, g.nome, g.agencia, g.cidade, g.uf, g.telefone, g.representante_id, g.ativo, g.token, "
-        "g.ultimo_envio, COUNT(DISTINCT l.id) AS listas, COUNT(c.id) AS clientes, "
-        "SUM(CASE WHEN c.etapa <> 'novo' THEN 1 ELSE 0 END) AS contatados, "
-        "SUM(CASE WHEN c.etapa IN ('respondeu', 'negociando', 'documentacao', 'vendido') THEN 1 ELSE 0 END) AS interessados, "
-        "SUM(CASE WHEN c.etapa = 'vendido' THEN 1 ELSE 0 END) AS fechados, "
-        "SUM(CASE WHEN c.etapa = 'vendido' THEN COALESCE(c.valor_credito, 0) ELSE 0 END) AS credito_fechado, "
-        "SUM(CASE WHEN c.etapa IN ('respondeu', 'negociando', 'documentacao') THEN COALESCE(c.valor_credito, 0) ELSE 0 END) AS credito_andamento "
-        "FROM gerentes g LEFT JOIN lotes l ON l.gerente_id = g.id LEFT JOIN clientes c ON c.lote_id = l.id "
-        "GROUP BY g.id ORDER BY g.nome").fetchall()
-    campos = ("listas", "clientes", "contatados", "interessados", "fechados", "credito_fechado", "credito_andamento")
-    return [{**dict(r), **{k: r[k] or 0 for k in campos}} for r in rows]
 
 
 def somar_producao(itens):
@@ -548,6 +542,7 @@ def cliente_enviou_documentos(conn, gerente_id, nome, telefone, qtd_arquivos):
         c = conn.execute("SELECT id, etapa FROM clientes WHERE telefone = ?", (telefone,)).fetchone()
     if c["etapa"] != "vendido":
         conn.execute("UPDATE clientes SET etapa = 'documentacao', atualizado_em = ? WHERE id = ?", (agora(), c["id"]))
+        repassar_se_interessado(conn, c["id"])
     registrar(conn, c["id"], "documentos", "entrada",
               f"Enviou {qtd_arquivos} documento(s) pelo link: ficha em \"Documentação recebida\".")
     return c["id"]

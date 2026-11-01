@@ -173,8 +173,14 @@ def _rep_id():
 
 @app.context_processor
 def _globais():
+    novos = 0
+    if g.get("rep"):  # selo no menu: interessados que chegaram e o representante ainda não abriu
+        filtro, args = db.filtro_rep(g.rep["id"], "lote_id")
+        with db.conectar() as conn:
+            novos = conn.execute("SELECT COUNT(*) AS n FROM clientes WHERE repasse_em IS NOT NULL AND repasse_visto = 0 "
+                                 "AND etapa NOT IN ('vendido', 'perdido', 'optout')" + filtro, args).fetchone()["n"]
     return {"ETAPAS": db.ETAPAS, "ETAPAS_DICT": db.ETAPAS_DICT, "fmt_tel": db.telefone_formatado, "fmt_cpf": db.cpf_formatado,
-            "rep_logado": g.get("rep")}
+            "rep_logado": g.get("rep"), "repasses_novos": novos}
 
 
 @app.template_filter("compacto")
@@ -290,6 +296,8 @@ def clientes():
 def cliente(cid):
     with db.conectar() as conn:
         c = _cliente_ou_404(conn, cid)
+        if g.rep and c["repasse_em"] and not c["repasse_visto"]:
+            conn.execute("UPDATE clientes SET repasse_visto = 1 WHERE id = ?", (cid,))
         inter = conn.execute("SELECT * FROM interacoes WHERE cliente_id = ? ORDER BY id DESC", (cid,)).fetchall()
         extras = json.loads(c["extras"]) if c["extras"] else {}
         pacotes = conn.execute(
@@ -301,6 +309,22 @@ def cliente(cid):
                 conn.execute("SELECT * FROM documentos WHERE pacote_id = ? ORDER BY id", (p["id"],)).fetchall() for p in pacotes}
         return render_template("cliente.html", c=c, interacoes=inter, extras=extras, cfg=db.config(conn),
                                pacotes=pacotes, docs=docs)
+
+
+@app.route("/atender")
+def atender():
+    """Interessados de agências com representante: é o representante quem atende (o consultor acompanha tudo)."""
+    rid = _rep_id() or request.args.get("rep", type=int)
+    filtro, args = db.filtro_rep(rid, "c.lote_id")
+    with db.conectar() as conn:
+        itens = conn.execute(
+            "SELECT c.*, g.nome AS gerente_nome, g.agencia AS agencia, g.cidade AS gerente_cidade, g.uf AS gerente_uf, "
+            "r.nome AS rep_nome FROM clientes c JOIN lotes l ON l.id = c.lote_id JOIN gerentes g ON g.id = l.gerente_id "
+            "JOIN representantes r ON r.id = g.representante_id WHERE c.repasse_em IS NOT NULL" + filtro +
+            " ORDER BY c.repasse_visto, (c.etapa IN ('vendido', 'perdido', 'optout')), c.repasse_em DESC LIMIT 500",
+            args).fetchall()
+        reps = [] if g.rep else conn.execute("SELECT id, nome FROM representantes ORDER BY nome").fetchall()
+    return render_template("atender.html", itens=itens, reps=reps, rep_id=rid)
 
 
 @app.route("/fila")
@@ -343,9 +367,8 @@ def _voltar(padrao):
 
 
 @app.route("/rede")
+@so_admin
 def rede():
-    if g.rep:
-        return redirect(url_for("representante", rid=g.rep["id"]))
     uf = request.args.get("uf", "")
     with db.conectar() as conn:
         reps = [dict(r) for r in conn.execute("SELECT * FROM representantes ORDER BY ativo DESC, nome")]
@@ -382,16 +405,13 @@ def representante_novo():
 
 
 @app.route("/rede/representante/<int:rid>", methods=["GET", "POST"])
+@so_admin
 def representante(rid):
-    if g.rep and g.rep["id"] != rid:
-        abort(404)
     with db.conectar() as conn:
         r = conn.execute("SELECT * FROM representantes WHERE id = ?", (rid,)).fetchone()
         if not r:
             abort(404)
-        if request.method == "POST":  # editar dados, ativar/desativar ou gerar link de acesso: só o consultor
-            if g.rep:
-                abort(403)
+        if request.method == "POST":  # editar dados, ativar/desativar ou gerar link de acesso
             if request.form.get("acao") == "convite":
                 token = secrets.token_urlsafe(24)
                 conn.execute("UPDATE representantes SET convite_token = ?, convite_expira = ? WHERE id = ?",
@@ -417,9 +437,10 @@ def representante(rid):
 
 
 @app.post("/gerentes/novo")
+@so_admin
 def gerente_novo():
     nome = " ".join(request.form.get("nome", "").split())
-    rid = _rep_id() or request.form.get("representante_id") or None
+    rid = request.form.get("representante_id") or None
     if nome:
         with db.conectar() as conn:
             conn.execute(
@@ -441,12 +462,11 @@ def gerente_representante(gid):
 
 
 @app.post("/gerentes/<int:gid>/ativo")
+@so_admin
 def gerente_ativo(gid):
     """Desativar corta o link na hora; reativar gera um link novo (o antigo nunca volta)."""
     with db.conectar() as conn:
-        ger = conn.execute("SELECT ativo, representante_id FROM gerentes WHERE id = ?", (gid,)).fetchone()
-        if ger and g.rep and ger["representante_id"] != g.rep["id"]:
-            abort(404)
+        ger = conn.execute("SELECT ativo FROM gerentes WHERE id = ?", (gid,)).fetchone()
         if ger and ger["ativo"]:
             conn.execute("UPDATE gerentes SET ativo = 0 WHERE id = ?", (gid,))
         elif ger:
@@ -662,6 +682,8 @@ def api_atualizar(cid):
             return jsonify(ok=True)
         sets["atualizado_em"] = db.agora()
         conn.execute(f"UPDATE clientes SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?", (*sets.values(), cid))
+        if "etapa" in sets:
+            db.repassar_se_interessado(conn, cid)
     return jsonify(ok=True)
 
 

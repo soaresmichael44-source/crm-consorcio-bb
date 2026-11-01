@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Para atender' if rep_logado else 'Repasses' }}{% endblock %}
+{% block head %}
+<style>
+.cli{display:grid;grid-template-columns:1.4fr 1fr 1fr auto;gap:14px;align-items:center;padding:14px 4px;border-bottom:1px solid var(--borda)}
+.cli:last-child{border-bottom:0}
+.cli .nm a{font-weight:700;color:var(--texto)}
+.cli small{display:block;color:var(--suave);font-size:12px;margin-top:2px}
+.cli.novo-rep{background:#fffbe6}
+.selo-novo{display:inline-block;margin-left:6px;font-size:10px;font-weight:800;background:var(--amarelo);color:var(--azul);border-radius:5px;padding:2px 6px;vertical-align:2px}
+.cli.fim{opacity:.55}
+@media (max-width:860px){.cli{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+{% block corpo %}
+<div class="linha" style="align-items:flex-start">
+  <div>
+    <h1>{{ 'Para atender' if rep_logado else 'Repasses aos representantes' }}</h1>
+    <p class="sub">{% if rep_logado %}Clientes das suas agências que se interessaram no follow-up da operação central. Agora o atendimento é seu: fale com o cliente e atualize a etapa na ficha.{% else %}Clientes que se interessaram no seu follow-up e passaram para o representante da agência atender.{% endif %}</p>
+  </div>
+  <span class="sp"></span>
+  {% if not rep_logado %}
+  <form method="get" style="margin:0"><select name="rep" onchange="this.form.submit()" style="width:auto">
+    <option value="">Todos os representantes</option>
+    {% for r in reps %}<option value="{{ r.id }}" {{ 'selected' if r.id == rep_id }}>{{ r.nome }}</option>{% endfor %}
+  </select></form>
+  {% endif %}
+</div>
+
+<div class="card">
+{% for c in itens %}
+  {% set encerrado = c.etapa in ('vendido', 'perdido', 'optout') %}
+  <div class="cli {{ 'novo-rep' if not c.repasse_visto and not encerrado }} {{ 'fim' if encerrado }}">
+    <div class="nm"><a href="/cliente/{{ c.id }}">{{ c.nome }}</a>{% if not c.repasse_visto and not encerrado %}<span class="selo-novo">NOVO</span>{% endif %}
+      <small>{{ c.produto or 'produto a confirmar' }}{% if c.valor_credito %} · {{ c.valor_credito|dinheiro }}{% endif %}</small></div>
+    <div><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span>
+      <small>chegou {{ c.repasse_em|data }}</small></div>
+    <div>🏦 {% if c.agencia %}ag. {{ c.agencia }}{% else %}agência{% endif %}
+      <small>{{ c.gerente_nome }}{% if c.gerente_cidade %} · {{ c.gerente_cidade }}{% endif %}{% if c.gerente_uf %}/{{ c.gerente_uf }}{% endif %}{% if not rep_logado %} · rep. {{ c.rep_nome }}{% endif %}</small></div>
+    <div class="linha">
+      {% if c.telefone %}<a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/{{ c.telefone }}">WhatsApp</a>{% endif %}
+      <a class="btn peq" href="/cliente/{{ c.id }}">Abrir ficha</a>
+    </div>
+  </div>
+{% else %}
+  <p class="muted">{% if rep_logado %}Nenhum cliente interessado ainda. Assim que um cliente das suas agências responder ao follow-up, ele aparece aqui.{% else %}Nenhum repasse ainda.{% endif %}</p>
+{% endfor %}
+</div>
+{% endblock %}

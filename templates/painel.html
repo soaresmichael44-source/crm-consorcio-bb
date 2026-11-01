@@ -7,6 +7,9 @@
   <a class="btn pri" href="/fila">Fila de hoje ({{ fila_n }})</a>
 </div>
 
+{% if rep_logado and repasses_novos %}<div class="aviso linha" style="justify-content:space-between">
+  <span><strong>{{ repasses_novos }} {{ 'cliente interessado chegou' if repasses_novos == 1 else 'clientes interessados chegaram' }}</strong> para você atender.</span>
+  <a class="btn peq am" href="/atender">Ver agora</a></div>{% endif %}
 {% if docs_clientes %}<div class="aviso linha" id="avisoDocs" style="justify-content:space-between;background:#fff1c2;border-color:#f1df9a;color:#5a4400">
   <span><strong>Documentação recebida:</strong>
   {% for d in docs_clientes %}{% if d.cliente_id %}<a href="/cliente/{{ d.cliente_id }}">{{ d.cliente_nome }}</a>{% else %}{{ d.cliente_nome }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}

@@ -12,12 +12,31 @@
 {% block corpo %}
 <div class="linha" style="align-items:flex-start">
   <div><h1>Fila de follow-up</h1>
+  {% if rep_logado %}
+  <p class="sub">{{ itens|length }} cliente(s) das suas agências em follow-up pela operação central. Aqui é só acompanhamento: quando um deles se interessar, ele vai para <a href="/atender">Para atender</a>.</p></div>
+  {% else %}
   <p class="sub">{{ itens|length }} cliente(s) com contato vencido · {{ envios_hoje }}/{{ cfg.max_envios_dia }} mensagens hoje ·
     modo WhatsApp: <strong>{{ 'automático (robô)' if cfg.modo_whatsapp == 'ponte' else 'manual (você clica e envia)' }}</strong></p></div>
   <span class="sp"></span>
   <button class="btn pri" id="btnRedigir">Redigir mensagens que faltam</button>
+  {% endif %}
 </div>
 <div id="st" class="muted" style="margin-bottom:10px"></div>
+{% if rep_logado %}
+<div class="card tabela-scroll">
+<table>
+  <thead><tr><th>Cliente</th><th>Agência / gerente</th><th>Produto</th><th>Etapa</th><th>Contato nº</th><th>Último contato</th></tr></thead>
+  <tbody>
+  {% for c in itens %}
+    <tr><td><strong>{{ c.nome }}</strong></td>
+      <td>{% if c.agencia %}ag. {{ c.agencia }}{% else %}—{% endif %}<br><small class="muted">{{ c.gerente_nome or '' }}</small></td>
+      <td>{{ c.produto or '—' }}</td><td><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span></td>
+      <td>{{ c.tentativas + 1 }}</td><td class="muted">{{ c.ultimo_contato|data }}</td></tr>
+  {% else %}<tr><td colspan="6" class="muted">Nenhum cliente das suas agências na fila agora.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
 {% if not horario_ok %}<div class="aviso">Fora do horário comercial configurado. Você ainda pode enviar manualmente, mas evite mensagens à noite e aos domingos.</div>{% endif %}
 {% if envios_hoje >= cfg.max_envios_dia|int %}<div class="aviso erro">Limite diário de mensagens atingido. Enviar muito mais do que isso num mesmo número aumenta o risco de bloqueio pelo WhatsApp.</div>{% endif %}
 
@@ -29,6 +48,8 @@
       <span class="muted">{{ fmt_tel(c.telefone) or 'sem telefone' }}</span><br>
       {% if c.email %}<span class="muted">{{ c.email }}</span><br>{% endif %}
       <div style="margin-top:6px"><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span></div>
+      {% if c.gerente_nome %}<div style="margin-top:6px;font-size:12px">🏦 {% if c.agencia %}ag. {{ c.agencia }} · {% endif %}{{ c.gerente_nome }}{% if c.gerente_uf %} · {{ c.gerente_uf }}{% endif %}<br>
+        <span class="muted">{{ 'rep. ' ~ c.rep_nome if c.rep_nome else 'operação direta' }}</span></div>{% endif %}
       <div class="muted" style="margin-top:6px;font-size:12px">
         {{ c.produto or 'produto ?' }} · {{ c.valor_credito|dinheiro }}<br>
         {% if c.situacao_bb %}BB: {{ c.situacao_bb }}<br>{% endif %}
@@ -54,6 +75,7 @@
   <p class="muted">Nenhum follow-up vencido agora. 🎯 <a href="/importar">Importar nova lista</a></p>
 {% endfor %}
 </div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -85,7 +107,7 @@ async function adiar(id){
   await api(`/api/cliente/${id}/atualizar`, {proximo_contato: iso}); feito(id, 'Adiado para amanhã 9h.');
 }
 async function pausar(id){ await api(`/api/cliente/${id}/atualizar`, {pausado: true}); feito(id, 'Cadência pausada para este cliente.'); }
-document.getElementById('btnRedigir').onclick = async (ev) => {
+if (document.getElementById('btnRedigir')) document.getElementById('btnRedigir').onclick = async (ev) => {
   ev.target.disabled = true; document.getElementById('st').textContent = 'A IA está escrevendo as mensagens (até o limite diário)…';
   try { const r = await api('/api/ciclo?rascunhos=1'); location.reload(); }
   catch(e){ document.getElementById('st').textContent = 'Erro: ' + e.message; ev.target.disabled = false; }

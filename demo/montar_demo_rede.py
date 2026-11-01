@@ -94,5 +94,9 @@ with db.conectar() as conn:
                                  (etapa_sorteada(forca), quando(random.randint(0, dias)), c["nome"].title()))
                 ultimo = max(ultimo or "", quando(dias))
             conn.execute("UPDATE gerentes SET ultimo_envio = ? WHERE id = ?", (ultimo, gid))
+    # Interessados já repassados aos representantes (os de hoje e de ontem ainda sem abrir).
+    for c in conn.execute("SELECT id, atualizado_em FROM clientes WHERE etapa IN ('respondeu', 'negociando', 'documentacao', 'vendido')").fetchall():
+        visto = 0 if c["atualizado_em"] >= quando(1) else 1
+        conn.execute("UPDATE clientes SET repasse_em = ?, repasse_visto = ? WHERE id = ?", (c["atualizado_em"], visto, c["id"]))
     total = conn.execute("SELECT COUNT(*) FROM clientes").fetchone()[0]
 print(f"ok: {len(REDE)} representantes, {sum(len(r[3]) for r in REDE)} gerentes, {total} clientes · {DEMO_DB}")

@@ -61,14 +61,19 @@ def envios_hoje(conn):
 
 
 def fila(conn, limite=200, lote_id=None, rep_id=None):
-    """Clientes com follow-up vencido, mais antigos primeiro (opcionalmente só de um lote ou de um representante)."""
-    filtro, args = ("AND lote_id = ? ", [lote_id]) if lote_id else ("", [])
-    filtro_r, args_r = db.filtro_rep(rep_id, "lote_id")
+    """Follow-up central: clientes com contato vencido, mais antigos primeiro (opcionalmente só de um lote ou
+    das agências de um representante). Quem se interessou e tem representante sai daqui: é ele quem atende."""
+    filtro, args = ("AND c.lote_id = ? ", [lote_id]) if lote_id else ("", [])
+    filtro_r, args_r = db.filtro_rep(rep_id, "c.lote_id")
     filtro, args = filtro + filtro_r + " ", args + args_r
     return conn.execute(
-        "SELECT * FROM clientes WHERE pausado = 0 AND etapa NOT IN ('documentacao', 'vendido', 'perdido', 'optout') "
-        "AND proximo_contato IS NOT NULL AND proximo_contato <= ? " + filtro +
-        "ORDER BY (etapa = 'novo') DESC, proximo_contato LIMIT ?",
+        "SELECT c.*, g.nome AS gerente_nome, g.agencia AS agencia, g.cidade AS gerente_cidade, g.uf AS gerente_uf, "
+        "r.nome AS rep_nome FROM clientes c LEFT JOIN lotes l ON l.id = c.lote_id "
+        "LEFT JOIN gerentes g ON g.id = l.gerente_id LEFT JOIN representantes r ON r.id = g.representante_id "
+        "WHERE c.pausado = 0 AND c.etapa NOT IN ('documentacao', 'vendido', 'perdido', 'optout') "
+        f"AND NOT (c.etapa IN ('respondeu', 'negociando') AND c.lote_id IN ({db.SQL_LOTES_COM_REP})) "
+        "AND c.proximo_contato IS NOT NULL AND c.proximo_contato <= ? " + filtro +
+        "ORDER BY (c.etapa = 'novo') DESC, c.proximo_contato LIMIT ?",
         (db.agora(), *args, limite),
     ).fetchall()
 
@@ -81,16 +86,9 @@ def historico(conn, cliente_id, n=8):
     return list(reversed(rows))
 
 
-def cfg_do_cliente(conn, cliente, cfg):
-    """Cliente da carteira de um representante: a mensagem sai no nome dele, não no do consultor."""
-    r = db.representante_do_cliente(conn, cliente["id"])
-    return {**cfg, "nome_consultor": r["nome"]} if r else cfg
-
-
 def preparar_rascunho(conn, cliente, cfg, forcar=False):
     if cliente["rascunho"] and not forcar:
         return cliente["rascunho"]
-    cfg = cfg_do_cliente(conn, cliente, cfg)
     assunto, texto = ia.gerar_mensagem(cliente, historico(conn, cliente["id"]), cliente["tentativas"] + 1, cfg)
     conn.execute("UPDATE clientes SET rascunho = ?, rascunho_assunto = ?, atualizado_em = ? WHERE id = ?",
                  (texto, assunto, db.agora(), cliente["id"]))
@@ -169,7 +167,7 @@ def ciclo(conn, cfg, so_rascunhos=False, lote_id=None):
                 restante -= 1
             if email_auto and c["email"] and (wa_auto or not c["telefone"]):
                 c2 = conn.execute("SELECT * FROM clientes WHERE id = ?", (c["id"],)).fetchone()
-                assunto, corpo = enviar_email(c2, cfg_do_cliente(conn, c2, cfg))
+                assunto, corpo = enviar_email(c2, cfg)
                 # Sem telefone, o e-mail é o canal principal e avança a cadência.
                 registrar_envio(conn, c2, cfg, "email", corpo, "enviado", assunto=assunto, avancar=not c["telefone"])
                 resumo["emails"] += 1
@@ -202,6 +200,7 @@ def registrar_resposta(conn, telefone, texto):
         prox = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute("UPDATE clientes SET etapa = ?, proximo_contato = ?, rascunho = NULL, atualizado_em = ? WHERE id = ?",
                  (etapa, prox, db.agora(), c["id"]))
+    db.repassar_se_interessado(conn, c["id"])
     return {"cliente_id": c["id"], "etapa": etapa}
 
 
