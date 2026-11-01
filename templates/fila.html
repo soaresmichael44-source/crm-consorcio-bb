@@ -6,6 +6,11 @@
 .item:last-child{border-bottom:0}
 .item textarea{min-height:120px}
 .item.feito{opacity:.45}
+.abas{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.abas a{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;background:#fff;border:1px solid var(--borda);color:var(--texto);font-weight:600;font-size:14px}
+.abas a b{background:#eef1f8;border-radius:10px;padding:1px 8px;font-size:12px}
+.abas a.on{background:var(--azul);border-color:var(--azul);color:#fff}
+.abas a.on b{background:var(--amarelo);color:var(--azul)}
 @media (max-width:860px){.item{grid-template-columns:1fr}}
 </style>
 {% endblock %}
@@ -15,12 +20,15 @@
   {% if rep_logado %}
   <p class="sub">{{ itens|length }} cliente(s) das suas agências em follow-up pela operação central. Aqui é só acompanhamento: quando um deles se interessar, ele vai para <a href="/atender">Para atender</a>.</p></div>
   {% else %}
-  <p class="sub">{{ itens|length }} cliente(s) com contato vencido · {{ envios_hoje }}/{{ cfg.max_envios_dia }} mensagens hoje ·
+  <p class="sub">{{ total }} cliente(s) com contato vencido · {{ envios_hoje }}/{{ cfg.max_envios_dia }} mensagens hoje ·
     modo WhatsApp: <strong>{{ 'automático (robô)' if cfg.modo_whatsapp == 'ponte' else 'manual (você clica e envia)' }}</strong></p></div>
   <span class="sp"></span>
   <button class="btn pri" id="btnRedigir">Redigir mensagens que faltam</button>
   {% endif %}
 </div>
+{% if abas %}
+<div class="abas">{% for a in abas %}<a href="/fila{{ '?rep=' ~ a.id if a.id }}" class="{{ 'on' if a.id == aba }}">{{ a.nome }}<b>{{ a.n }}</b></a>{% endfor %}</div>
+{% endif %}
 <div id="st" class="muted" style="margin-bottom:10px"></div>
 {% if rep_logado %}
 <div class="card tabela-scroll">

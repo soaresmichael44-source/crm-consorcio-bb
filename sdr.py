@@ -68,7 +68,7 @@ def fila(conn, limite=200, lote_id=None, rep_id=None):
     filtro, args = filtro + filtro_r + " ", args + args_r
     return conn.execute(
         "SELECT c.*, g.nome AS gerente_nome, g.agencia AS agencia, g.cidade AS gerente_cidade, g.uf AS gerente_uf, "
-        "r.nome AS rep_nome FROM clientes c LEFT JOIN lotes l ON l.id = c.lote_id "
+        "r.id AS rep_id, r.nome AS rep_nome FROM clientes c LEFT JOIN lotes l ON l.id = c.lote_id "
         "LEFT JOIN gerentes g ON g.id = l.gerente_id LEFT JOIN representantes r ON r.id = g.representante_id "
         "WHERE c.pausado = 0 AND c.etapa NOT IN ('documentacao', 'vendido', 'perdido', 'optout') "
         f"AND NOT (c.etapa IN ('respondeu', 'negociando') AND c.lote_id IN ({db.SQL_LOTES_COM_REP})) "

@@ -1,10 +1,46 @@
 {% extends "base.html" %}
+{% block head %}
+<style>
+.topo{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.numeros{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+.num{display:block;background:#fff;border:1px solid var(--borda);border-radius:12px;padding:14px 16px;color:var(--texto)}
+.num:hover{border-color:var(--azul-2)}
+.num b{display:block;font-size:26px;font-weight:800;color:var(--azul);line-height:1.1}
+.num span{font-size:12px;color:var(--suave)}
+.num.quente b{color:var(--fogo, #f05a1e)}
+.num.ouro{background:var(--amarelo);border-color:var(--amarelo)}
+.num.ouro span{color:#5a4a00}
+.secao{font-size:15px;font-weight:800;margin:6px 2px 10px;display:flex;align-items:center;gap:8px}
+.secao a{margin-left:auto;font-size:13px;font-weight:600}
+.reps{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px;margin-bottom:20px}
+.rep{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:14px 16px}
+.rep .nm{font-weight:800;font-size:15px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.rep .linhas a{color:inherit}
+.rep .nm small{font-weight:500;color:var(--suave);font-size:12px}
+.rep .nm .alerta{margin-left:auto;background:var(--amarelo);color:var(--azul);border-radius:10px;padding:1px 8px;font-size:11px;font-weight:800}
+.rep .linhas{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0 10px;text-align:center}
+.rep .linhas b{display:block;font-size:18px;font-weight:800;color:var(--azul)}
+.rep .linhas span{font-size:10px;color:var(--suave);text-transform:uppercase;letter-spacing:.03em}
+.rep .rodape{display:flex;gap:6px;align-items:flex-end;font-size:13px;border-top:1px solid var(--borda);padding-top:10px}
+.rep .rodape small{display:block;color:var(--suave);font-size:12px}
+.rep .rodape strong{color:var(--verde)}
+.rep .rodape a{margin-left:auto}
+.duas{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
+@media (max-width:860px){.duas{grid-template-columns:1fr}}
+.mov{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--borda)}
+.mov:last-child{border-bottom:0}
+.mov a{font-weight:700;color:var(--texto)}
+.mov small{display:block;font-size:12px;color:var(--suave)}
+.mov .qd{margin-left:auto;font-size:12px;color:var(--suave);white-space:nowrap}
+</style>
+{% endblock %}
 {% block corpo %}
-<div class="linha" style="align-items:flex-start">
-  <div><h1>{{ 'Olá, ' ~ rep_logado.nome.split(' ')[0] ~ '!' if rep_logado else 'Painel da operação BB' }}</h1><p class="sub">{{ 'Os clientes das listas dos seus gerentes de agência.' if rep_logado else 'Clientes vindos exclusivamente das listas do Banco do Brasil.' }}</p></div>
+<div class="topo">
+  <div><h1>{{ 'Olá, ' ~ rep_logado.nome.split(' ')[0] ~ '!' if rep_logado else 'Painel da operação' }}</h1>
+    <p class="sub" style="margin:0">{{ 'Os clientes das suas agências.' if rep_logado else 'Follow-up central e a negociação de cada representante.' }}</p></div>
   <span class="sp"></span>
-  {% if not rep_logado %}<a class="btn am" href="/importar">+ Importar lista</a>{% endif %}
-  <a class="btn pri" href="/fila">Fila de hoje ({{ fila_n }})</a>
+  {% if rep_logado %}<a class="btn am" href="/atender">Para atender{% if repasses_novos %} ({{ repasses_novos }}){% endif %}</a>
+  {% else %}<a class="btn" href="/importar">+ Importar lista</a><a class="btn pri" href="/fila">Fila de hoje ({{ fila_n }})</a>{% endif %}
 </div>
 
 {% if rep_logado and repasses_novos %}<div class="aviso linha" style="justify-content:space-between">
@@ -12,73 +48,100 @@
   <a class="btn peq am" href="/atender">Ver agora</a></div>{% endif %}
 {% if docs_clientes %}<div class="aviso linha" id="avisoDocs" style="justify-content:space-between;background:#fff1c2;border-color:#f1df9a;color:#5a4400">
   <span><strong>Documentação recebida:</strong>
-  {% for d in docs_clientes %}{% if d.cliente_id %}<a href="/cliente/{{ d.cliente_id }}">{{ d.cliente_nome }}</a>{% else %}{{ d.cliente_nome }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}
-  {{ 'enviou' if docs_clientes|length == 1 else 'enviaram' }} a documentação ao gerente pelo link. A ficha já está na etapa "Documentação recebida".</span>
-  <span class="linha"><a class="btn peq" href="/clientes?etapa=documentacao">Ver clientes</a><button class="btn peq" onclick="api('/api/docs-clientes/vistos').then(()=>avisoDocs.remove())">Ok, visto</button></span>
+  {% for d in docs_clientes %}{% if d.cliente_id %}<a href="/cliente/{{ d.cliente_id }}">{{ d.cliente_nome }}</a>{% else %}{{ d.cliente_nome }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}.</span>
+  <button class="btn peq" onclick="api('/api/docs-clientes/vistos').then(()=>avisoDocs.remove())">Ok, visto</button>
 </div>{% endif %}
 {% if recebidos %}<div class="aviso ok linha" id="avisoRecebidos" style="justify-content:space-between">
-  <span>📷 Novas listas pelo celular:
-  {% for r in recebidos %}<strong>{{ r.contatos }} contato(s)</strong> de {{ r.nome }}{{ ', ' if not loop.last }}{% endfor %}. Já estão na fila.</span>
-  <span class="linha"><a class="btn peq" href="/fila">Ver fila</a><button class="btn peq" onclick="api('/api/lotes/vistos').then(()=>avisoRecebidos.remove())">Ok, visto</button></span>
+  <span>📷 Novas listas: {% for r in recebidos %}<strong>{{ r.contatos }}</strong> de {{ r.nome }}{{ ', ' if not loop.last }}{% endfor %}. Já estão na fila.</span>
+  <button class="btn peq" onclick="api('/api/lotes/vistos').then(()=>avisoRecebidos.remove())">Ok, visto</button>
 </div>{% endif %}
-{% if not horario_ok %}<div class="aviso">Fora do horário de envio ({{ cfg.hora_inicio }}h–{{ cfg.hora_fim }}h, seg–sáb; sábado até 13h). A cadência automática retoma no próximo horário útil.</div>{% endif %}
 
-<div class="grid g4">
-  <div class="card kpi"><div class="n">{{ total }}</div><div class="l">clientes BB no CRM</div></div>
-  <div class="card kpi"><div class="n">{{ fila_n }}</div><div class="l">follow-ups vencidos</div></div>
-  <div class="card kpi"><div class="n">{{ envios_hoje }}<span class="muted" style="font-size:15px"> / {{ cfg.max_envios_dia }}</span></div><div class="l">mensagens hoje / limite diário</div></div>
-  <div class="card kpi"><div class="n">{{ por_etapa.get('respondeu', 0) + por_etapa.get('negociando', 0) }}</div><div class="l">conversas quentes</div></div>
-  <div class="card kpi"><div class="n" style="color:var(--verde)">{{ por_etapa.get('vendido', 0) }}</div><div class="l">vendidos</div></div>
+{% set interessados = por_etapa.get('respondeu', 0) %}
+{% set negociando = por_etapa.get('negociando', 0) + por_etapa.get('documentacao', 0) %}
+<div class="numeros">
+  <a class="num" href="/fila"><b>{{ fila_n }}</b><span>{{ 'em follow-up pela central' if rep_logado else 'na fila de follow-up hoje' }}</span></a>
+  <a class="num quente" href="/negociacoes"><b>{{ interessados }}</b><span>interessados</span></a>
+  <a class="num quente" href="/negociacoes"><b>{{ negociando }}</b><span>negociando ou com documentação</span></a>
+  <a class="num" href="/clientes?etapa=vendido"><b>{{ por_etapa.get('vendido', 0) }}</b><span>fechados</span></a>
+  <a class="num ouro" href="/clientes?etapa=vendido"><b>{{ credito_fechado|compacto }}</b><span>crédito fechado</span></a>
+  <a class="num" href="/clientes"><b>{{ total }}</b><span>clientes na base</span></a>
 </div>
 
-<div class="grid g2">
-  <div class="card">
-    <h2>Funil</h2>
-    {% for k, nome in ETAPAS %}
-      {% set n = por_etapa.get(k, 0) %}
-      <a href="/clientes?etapa={{ k }}" style="display:block;margin-bottom:10px;color:inherit">
-        <div class="linha"><span class="tag {{ k }}">{{ nome }}</span><span class="sp"></span><strong>{{ n }}</strong></div>
-        <div style="height:6px;background:#eef1f8;border-radius:4px;margin-top:5px"><div style="height:6px;border-radius:4px;background:var(--azul-2);width:{{ (n / total * 100) if total else 0 }}%"></div></div>
-      </a>
-    {% endfor %}
+{% if reps %}
+<div class="secao">Representantes<a href="/rede">Rede nacional ›</a></div>
+<div class="reps">
+  {% for r in reps %}
+  <div class="rep">
+    <div class="nm">{{ r.nome }} <small>{{ r.uf or '' }} · {{ r.agencias }} {{ 'agência' if r.agencias == 1 else 'agências' }}</small>
+      {% if r.novos %}<span class="alerta" title="Interessados que ele ainda não abriu">{{ r.novos }} sem abrir</span>{% endif %}</div>
+    <div class="linhas">
+      <a href="/fila?rep={{ r.id }}"><b>{{ r.fila }}</b><span>na fila</span></a>
+      <a href="/negociacoes?rep={{ r.id }}"><b>{{ r.prod.interessados - r.prod.fechados }}</b><span>em atend.</span></a>
+      <a href="/negociacoes?rep={{ r.id }}"><b>{{ r.prod.fechados }}</b><span>fechados</span></a>
+      <a href="/clientes?rep={{ r.id }}"><b>{{ r.prod.clientes }}</b><span>clientes</span></a>
+    </div>
+    <div class="rodape"><div><strong>{{ r.prod.credito_fechado|compacto }}</strong> fechado<small>{{ r.prod.credito_andamento|compacto }} em negociação</small></div>
+      <a href="/negociacoes?rep={{ r.id }}">Negociações ›</a></div>
   </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="duas">
   <div class="card">
-    <div class="linha"><h2 style="margin:0">Últimos contatos</h2><span class="sp"></span>
-      {% if not rep_logado %}<button class="btn peq" id="btnCiclo">Rodar cadência agora</button>{% endif %}</div>
-    <div id="cicloSt" class="muted" style="margin:8px 0"></div>
-    {% for i in ultimas %}
-      <div style="padding:8px 0;border-bottom:1px solid var(--borda)">
-        <div class="linha"><a href="/cliente/{{ i.cliente_id }}"><strong>{{ i.nome }}</strong></a>
-          <span class="tag">{{ i.canal }} · {{ 'recebida' if i.direcao == 'entrada' else ('nota' if i.direcao == 'interna' else 'enviada') }}</span>
-          <span class="sp"></span><span class="muted">{{ i.criado_em|data }}</span></div>
-        <div class="muted" style="margin-top:3px">{{ (i.texto or '')[:140] }}</div>
-      </div>
-    {% else %}<p class="muted">Nenhum contato ainda. Importe a primeira lista.</p>{% endfor %}
-    <h2 style="margin-top:20px">Lotes importados</h2>
-    {% for l in lotes %}
-      <div class="linha muted" style="padding:4px 0">
-        <span>#{{ l.id }} · {{ l.criado_em|data }} · {{ l.qtd_clientes }} clientes{% if l.descricao and not l.gerente_id %} · {{ l.descricao }}{% endif %}</span>
-        <span class="sp"></span>
-        {% if gerentes and not rep_logado %}
-        <select style="width:auto;padding:4px 8px;font-size:12px" title="Gerente que indicou esta lista" onchange="api('/api/lote/{{ l.id }}/gerente', {gerente_id: this.value}).then(() => this.style.borderColor = 'var(--verde)')">
+    <div class="secao" style="margin-top:0">Últimas movimentações<a href="/negociacoes">Negociações ›</a></div>
+    {% for c in recentes %}
+    <div class="mov"><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa].split(' (')[0].split(',')[0] }}</span>
+      <div><a href="/cliente/{{ c.id }}">{{ c.nome }}</a>
+        <small>{% if c.agencia %}ag. {{ c.agencia }}{% endif %}{% if c.rep_nome and not rep_logado %} · {{ c.rep_nome.split(' ')[0] }}{% endif %}{% if c.valor_credito %} · {{ c.valor_credito|compacto }}{% endif %}</small></div>
+      <span class="qd">há {{ ha(c.atualizado_em) }}</span></div>
+    {% else %}<p class="muted">Nenhuma movimentação ainda.</p>{% endfor %}
+  </div>
+  <div>
+    {% if parados %}
+    <div class="card" style="border-color:#f1df9a">
+      <div class="secao" style="margin-top:0">⏰ Interessados sem atendimento há +24 h</div>
+      {% for c in parados %}
+      <div class="mov"><div><a href="/cliente/{{ c.id }}">{{ c.nome }}</a><small>{{ 'com você' if rep_logado else 'com ' ~ c.rep_nome }}</small></div>
+        <span class="qd">há {{ ha(c.repasse_em) }}</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if not rep_logado %}
+    <div class="card">
+      <div class="secao" style="margin-top:0">Hoje</div>
+      <div class="muted" style="font-size:14px;line-height:1.6">{{ envios_hoje }}/{{ cfg.max_envios_dia }} mensagens enviadas<br>
+        {{ 'Dentro do horário de envio' if horario_ok else 'Fora do horário de envio' }} ({{ cfg.hora_inicio }}h–{{ cfg.hora_fim }}h)<br>
+        Envio automático: <strong>{{ 'ligado' if cfg.envio_automatico == '1' else 'desligado' }}</strong></div>
+      <div class="linha" style="margin-top:10px"><button class="btn peq" id="btnCiclo">Preparar mensagens agora</button><span id="cicloSt" class="muted" style="font-size:12px"></span></div>
+    </div>
+    {% if lotes %}
+    <details class="card">
+      <summary style="cursor:pointer;font-weight:700">Últimas listas recebidas</summary>
+      {% for l in lotes %}
+      <div class="linha muted" style="padding:6px 0;font-size:13px">
+        <span>#{{ l.id }} · {{ l.criado_em|data }} · {{ l.qtd_clientes }} clientes</span><span class="sp"></span>
+        {% if gerentes %}<select style="width:auto;padding:4px 8px;font-size:12px" onchange="api('/api/lote/{{ l.id }}/gerente', {gerente_id: this.value}).then(() => this.style.borderColor = 'var(--verde)')">
           <option value="">{{ 'Sem gerente' if l.gerente_id else 'Atribuir ao gerente…' }}</option>
-          {% for g in gerentes %}<option value="{{ g.id }}" {{ 'selected' if g.id == l.gerente_id }}>📷 {{ g.nome }}</option>{% endfor %}
-        </select>
-        {% elif l.gerente %}<span>📷 {{ l.gerente }}</span>{% endif %}
+          {% for gr in gerentes %}<option value="{{ gr.id }}" {{ 'selected' if gr.id == l.gerente_id }}>{{ gr.nome }}</option>{% endfor %}
+        </select>{% elif l.gerente %}<span>{{ l.gerente }}</span>{% endif %}
       </div>
-    {% else %}<p class="muted">—</p>{% endfor %}
+      {% endfor %}
+    </details>
+    {% endif %}
+    {% endif %}
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-if (document.getElementById('btnCiclo')) document.getElementById('btnCiclo').onclick = async (ev) => {
-  ev.target.disabled = true; const st = document.getElementById('cicloSt'); st.textContent = 'Rodando…';
+const b = document.getElementById('btnCiclo');
+if (b) b.onclick = async () => {
+  b.disabled = true; const st = document.getElementById('cicloSt'); st.textContent = 'Preparando…';
   try { const r = await api('/api/ciclo');
-    st.textContent = r.fora_do_horario ? 'Fora do horário de envio — nada foi enviado.' :
-      (r.envio_automatico ? `${r.rascunhos} mensagem(ns) redigida(s), ${r.enviados} enviada(s) por WhatsApp, ${r.emails} e-mail(s).` : `${r.rascunhos} mensagem(ns) preparada(s) na fila. Envio automático desligado: nada foi enviado.`) + (r.erros.length ? ' Erros: ' + r.erros.join('; ') : '');
+    st.textContent = r.fora_do_horario ? 'Fora do horário: nada enviado.' : `${r.rascunhos} mensagem(ns) prontas na fila${r.enviados ? `, ${r.enviados} enviada(s)` : ''}.`;
   } catch (e) { st.textContent = 'Erro: ' + e.message; }
-  ev.target.disabled = false;
+  b.disabled = false;
 };
 </script>
 {% endblock %}

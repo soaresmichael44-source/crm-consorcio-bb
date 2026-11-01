@@ -77,14 +77,14 @@ label{font-size:12px;color:var(--suave);font-weight:600;display:block;margin-bot
   <div class="marca">CRM Consórcio BB<small>Operação Banco do Brasil</small></div>
   {% set p = request.path %}
   <a href="/" class="{{ 'ativo' if p == '/' }}">Painel</a>
-  {% if not rep_logado %}<a href="/importar" class="{{ 'ativo' if p.startswith('/importar') }}">Importar listas</a>{% endif %}
   {% if rep_logado %}<a href="/atender" class="{{ 'ativo' if p.startswith('/atender') }}">Para atender{% if repasses_novos %}<span class="badge" style="background:var(--amarelo);color:var(--azul)">{{ repasses_novos }}</span>{% endif %}</a>{% endif %}
+  <a href="/negociacoes" class="{{ 'ativo' if p.startswith('/negociacoes') }}">Negociações</a>
   <a href="/fila" class="{{ 'ativo' if p.startswith('/fila') }}">Fila de follow-up</a>
-  <a href="/clientes" class="{{ 'ativo' if p.startswith('/cliente') }}">Clientes</a>
-  {% if not rep_logado %}<a href="/atender" class="{{ 'ativo' if p.startswith('/atender') }}">Repasses</a>
+  {% if not rep_logado %}<a href="/clientes" class="{{ 'ativo' if p.startswith('/cliente') }}">Clientes</a>
   <a href="/rede" class="{{ 'ativo' if p.startswith('/rede') }}">Rede nacional</a>{% endif %}
-  <a href="/documentos" class="{{ 'ativo' if p.startswith('/documentos') }}">Documentos p/ gerente</a>
-  {% if not rep_logado %}<a href="/config" class="{{ 'ativo' if p.startswith('/config') }}">Configurações</a>{% endif %}
+  <a href="/documentos" class="{{ 'ativo' if p.startswith('/documentos') }}">Documentos</a>
+  {% if not rep_logado %}<a href="/importar" class="{{ 'ativo' if p.startswith('/importar') }}">Importar listas</a>
+  <a href="/config" class="{{ 'ativo' if p.startswith('/config') }}">Configurações</a>{% endif %}
   {% if rep_logado %}<div class="quem">{{ rep_logado.nome }}<small>Representante</small></div>{% endif %}
   {% if rep_logado or session.get('logado') %}<a href="/sair" class="sair">Sair</a>{% endif %}
 </nav>

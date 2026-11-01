@@ -226,30 +226,53 @@ def painel():
     rid = _rep_id()
     fc, ac = db.filtro_rep(rid, "c.lote_id")
     fl, al = db.filtro_rep(rid, "l.id")
-    fg, ag = (" AND representante_id = ?", [rid]) if rid else ("", [])
     with db.conectar() as conn:
         cfg = db.config(conn)
         por_etapa = {r["etapa"]: r["n"] for r in conn.execute(
             "SELECT c.etapa, COUNT(*) n FROM clientes c WHERE 1=1" + fc + " GROUP BY c.etapa", ac)}
-        total = sum(por_etapa.values())
-        fila_n = len(sdr.fila(conn, rep_id=rid))
-        lotes = conn.execute(
-            "SELECT l.*, g.nome AS gerente FROM lotes l LEFT JOIN gerentes g ON g.id = l.gerente_id WHERE 1=1" + fl +
-            " ORDER BY l.id DESC LIMIT 6", al).fetchall()
-        gerentes = conn.execute("SELECT id, nome FROM gerentes WHERE ativo = 1" + fg + " ORDER BY nome", ag).fetchall()
+        credito_fechado = conn.execute(
+            "SELECT COALESCE(SUM(c.valor_credito), 0) AS v FROM clientes c WHERE c.etapa = 'vendido'" + fc, ac).fetchone()["v"]
+        fila = sdr.fila(conn, limite=5000, rep_id=rid)
+        # Uma linha por representante: o que está na fila, com quem e quanto já fechou.
+        reps = []
+        if not rid:
+            prod = db.producao_gerentes(conn)
+            novos = {r["rid"]: r["n"] for r in conn.execute(
+                "SELECT g.representante_id AS rid, COUNT(*) AS n FROM clientes c JOIN lotes l ON l.id = c.lote_id "
+                "JOIN gerentes g ON g.id = l.gerente_id WHERE c.repasse_em IS NOT NULL AND c.repasse_visto = 0 "
+                "AND c.etapa NOT IN ('vendido', 'perdido', 'optout') GROUP BY g.representante_id")}
+            for r in conn.execute("SELECT * FROM representantes WHERE ativo = 1 ORDER BY nome"):
+                ger = [x for x in prod if x["representante_id"] == r["id"]]
+                reps.append({**dict(r), "agencias": len(ger), "prod": db.somar_producao(ger),
+                             "fila": sum(1 for i in fila if i["rep_id"] == r["id"]), "novos": novos.get(r["id"], 0)})
+        # Movimentação recente: quem mudou de etapa por último (o painel "respira" com a operação).
+        recentes = conn.execute(
+            "SELECT c.id, c.nome, c.etapa, c.valor_credito, c.atualizado_em, g.agencia, r.nome AS rep_nome FROM clientes c "
+            "LEFT JOIN lotes l ON l.id = c.lote_id LEFT JOIN gerentes g ON g.id = l.gerente_id "
+            "LEFT JOIN representantes r ON r.id = g.representante_id WHERE c.etapa <> 'novo'" + fc +
+            " ORDER BY c.atualizado_em DESC LIMIT 8", ac).fetchall()
+        # Interessado que chegou para o representante e ninguém abriu há mais de 24 h: precisa de cobrança.
+        parados = conn.execute(
+            "SELECT c.id, c.nome, c.repasse_em, r.nome AS rep_nome FROM clientes c JOIN lotes l ON l.id = c.lote_id "
+            "JOIN gerentes g ON g.id = l.gerente_id JOIN representantes r ON r.id = g.representante_id "
+            "WHERE c.repasse_visto = 0 AND c.repasse_em < ? AND c.etapa NOT IN ('vendido', 'perdido', 'optout')" + fc +
+            " ORDER BY c.repasse_em LIMIT 6", [(datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S"), *ac]).fetchall()
         docs_clientes = conn.execute(
             "SELECT p.id, p.cliente_id, p.cliente_nome FROM pacotes_docs p JOIN gerentes g ON g.id = p.gerente_id "
             "WHERE p.origem = 'cliente' AND p.visto_consultor = 0" + (" AND g.representante_id = ?" if rid else "") +
-            " ORDER BY p.id DESC", ag).fetchall()
+            " ORDER BY p.id DESC", [rid] if rid else []).fetchall()
         recebidos = conn.execute(
             "SELECT g.nome, COUNT(*) AS lotes, SUM(l.qtd_clientes) AS contatos FROM lotes l "
             "JOIN gerentes g ON g.id = l.gerente_id WHERE l.visto = 0" + (" AND g.representante_id = ?" if rid else "") +
-            " GROUP BY g.id, g.nome", ag).fetchall()
-        ultimas = conn.execute(
-            "SELECT i.*, c.nome FROM interacoes i JOIN clientes c ON c.id = i.cliente_id "
-            "WHERE i.canal != 'sistema'" + fc + " ORDER BY i.id DESC LIMIT 8", ac).fetchall()
-        return render_template("painel.html", por_etapa=por_etapa, total=total, fila_n=fila_n,
-                               envios_hoje=sdr.envios_hoje(conn), cfg=cfg, lotes=lotes, ultimas=ultimas, recebidos=recebidos, gerentes=gerentes, docs_clientes=docs_clientes,
+            " GROUP BY g.id, g.nome", [rid] if rid else []).fetchall()
+        lotes = [] if rid else conn.execute(
+            "SELECT l.*, g.nome AS gerente FROM lotes l LEFT JOIN gerentes g ON g.id = l.gerente_id WHERE 1=1" + fl +
+            " ORDER BY l.id DESC LIMIT 6", al).fetchall()
+        gerentes = [] if rid else conn.execute("SELECT id, nome FROM gerentes WHERE ativo = 1 ORDER BY nome").fetchall()
+        return render_template("painel.html", por_etapa=por_etapa, total=sum(por_etapa.values()), fila_n=len(fila),
+                               credito_fechado=credito_fechado, reps=reps, recentes=recentes, parados=parados,
+                               ha=_ha_quanto, cfg=cfg, lotes=lotes, recebidos=recebidos, gerentes=gerentes,
+                               docs_clientes=docs_clientes, envios_hoje=sdr.envios_hoje(conn),
                                horario_ok=sdr.dentro_do_horario(cfg))
 
 
@@ -327,13 +350,65 @@ def atender():
     return render_template("atender.html", itens=itens, reps=reps, rep_id=rid)
 
 
+COLUNAS_NEGOCIACAO = [("novo", "Na fila"), ("contatado", "Em contato"), ("respondeu", "Interessado"),
+                      ("negociando", "Negociando"), ("documentacao", "Documentação"), ("vendido", "Fechado")]
+
+
+def _ha_quanto(ts):
+    try:
+        seg = (datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")).total_seconds()
+    except (TypeError, ValueError):
+        return ""
+    if seg < 3600:
+        return f"{max(int(seg // 60), 1)} min"
+    if seg < 86400:
+        return f"{int(seg // 3600)} h"
+    return f"{int(seg // 86400)} d"
+
+
+@app.route("/negociacoes")
+def negociacoes():
+    """Todos os clientes por etapa, lado a lado: o consultor acompanha a rede inteira (ou um representante)."""
+    rid = _rep_id() or request.args.get("rep", type=int)
+    filtro, args = ("", [])
+    if rid == 0:
+        filtro = " AND (g.representante_id IS NULL)"
+    elif rid:
+        filtro, args = " AND g.representante_id = ?", [rid]
+    with db.conectar() as conn:
+        rows = conn.execute(
+            "SELECT c.id, c.nome, c.etapa, c.produto, c.valor_credito, c.atualizado_em, c.repasse_em, c.repasse_visto, "
+            "g.nome AS gerente_nome, g.agencia, r.nome AS rep_nome FROM clientes c LEFT JOIN lotes l ON l.id = c.lote_id "
+            "LEFT JOIN gerentes g ON g.id = l.gerente_id LEFT JOIN representantes r ON r.id = g.representante_id "
+            "WHERE 1=1" + filtro + " ORDER BY c.atualizado_em DESC", args).fetchall()
+        reps = [] if g.rep else conn.execute("SELECT id, nome FROM representantes WHERE ativo = 1 ORDER BY nome").fetchall()
+    colunas = []
+    for etapa, titulo in COLUNAS_NEGOCIACAO:
+        itens = [dict(r, ha=_ha_quanto(r["atualizado_em"])) for r in rows if r["etapa"] == etapa]
+        colunas.append({"etapa": etapa, "titulo": titulo, "n": len(itens),
+                        "credito": sum(i["valor_credito"] or 0 for i in itens), "itens": itens[:60]})
+    fora = sum(1 for r in rows if r["etapa"] in ("perdido", "optout"))
+    return render_template("negociacoes.html", colunas=colunas, fora=fora, reps=reps, rep_id=rid, total=len(rows))
+
+
 @app.route("/fila")
 def fila():
     with db.conectar() as conn:
         cfg = db.config(conn)
-        itens = sdr.fila(conn, rep_id=_rep_id())
-        return render_template("fila.html", itens=itens, cfg=cfg, envios_hoje=sdr.envios_hoje(conn),
-                               horario_ok=sdr.dentro_do_horario(cfg))
+        itens = sdr.fila(conn, limite=2000, rep_id=_rep_id())
+        reps = [] if g.rep else conn.execute("SELECT id, nome FROM representantes WHERE ativo = 1 ORDER BY nome").fetchall()
+        # Uma aba por representante (e "Direto" para gerentes sem representante), com a contagem de cada uma.
+        abas = [{"id": "", "nome": "Todos", "n": len(itens)}]
+        abas += [{"id": str(r["id"]), "nome": r["nome"].split(" ")[0], "n": sum(1 for i in itens if i["rep_id"] == r["id"])}
+                 for r in reps]
+        diretos = sum(1 for i in itens if not i["rep_id"])
+        if reps and diretos:
+            abas.append({"id": "0", "nome": "Direto", "n": diretos})
+        aba = request.args.get("rep", "")
+        if aba:
+            itens = [i for i in itens if (i["rep_id"] or 0) == int(aba)]
+        return render_template("fila.html", itens=itens[:200], total=len(itens), cfg=cfg, envios_hoje=sdr.envios_hoje(conn),
+                               horario_ok=sdr.dentro_do_horario(cfg), abas=abas if reps else [], aba=aba)
 
 
 @app.route("/config", methods=["GET", "POST"])

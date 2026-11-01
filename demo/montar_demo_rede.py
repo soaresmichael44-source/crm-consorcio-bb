@@ -1,5 +1,5 @@
-"""Monta demo/rede_demo.db: uma rede nacional FICTÍCIA (representantes, gerentes de agência e listas
-com produção), para mostrar a tela Rede nacional cheia. Não toca no banco real.
+"""Monta demo/rede_demo.db: um ambiente de TESTE enxuto da operação em rede (4 representantes, 2 agências
+cada, clientes em todas as etapas, follow-up vencido e interessados já repassados). Não toca no banco real.
 
 Uso:  python3 demo/montar_demo_rede.py
       CRM_BB_DB=demo/rede_demo.db CRM_BB_DEMO=1 PORTA=8098 python3 app.py
@@ -19,84 +19,65 @@ os.environ.pop("DATABASE_URL", None)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import db  # noqa: E402
 
-random.seed(2026)
-REDE = [  # representante, cidade, UF, gerentes (nome, agência, cidade, UF), "força" (0–1)
+random.seed(7)
+REDE = [  # representante, cidade, UF, gerentes (nome, agência, cidade, UF)
     ("João Pereira", "Belo Horizonte", "MG", [("Lucas Andrade", "1615 Savassi", "Belo Horizonte", "MG"),
-                                              ("Fernanda Rocha", "3380 Pampulha", "Belo Horizonte", "MG"),
-                                              ("Ricardo Lima", "0442 Contagem", "Contagem", "MG"),
-                                              ("Paula Menezes", "2210 Betim", "Betim", "MG")], .9),
+                                              ("Paula Menezes", "2210 Betim", "Betim", "MG")]),
     ("Mariana Tavares", "São Paulo", "SP", [("André Moura", "0300 Paulista", "São Paulo", "SP"),
-                                            ("Juliana Prado", "4471 Moema", "São Paulo", "SP"),
-                                            ("Carlos Eduardo", "1902 Campinas Centro", "Campinas", "SP")], .8),
+                                            ("Juliana Prado", "1902 Campinas", "Campinas", "SP")]),
     ("Rafael Coutinho", "Rio de Janeiro", "RJ", [("Beatriz Lemos", "0598 Copacabana", "Rio de Janeiro", "RJ"),
-                                                 ("Thiago Neves", "2875 Niterói", "Niterói", "RJ")], .6),
+                                                 ("Thiago Neves", "2875 Niterói", "Niterói", "RJ")]),
     ("Patrícia Gomes", "Goiânia", "GO", [("Marcelo Ribeiro", "0086 Setor Bueno", "Goiânia", "GO"),
-                                         ("Larissa Campos", "3521 Anápolis", "Anápolis", "GO"),
-                                         ("Diego Souza", "1137 Brasília Asa Sul", "Brasília", "DF")], .7),
-    ("Eduardo Farias", "Salvador", "BA", [("Camila Duarte", "0024 Barra", "Salvador", "BA"),
-                                          ("Renato Alves", "2963 Feira de Santana", "Feira de Santana", "BA")], .45),
-    ("Aline Martins", "Curitiba", "PR", [("Gustavo Kraus", "3046 Batel", "Curitiba", "PR"),
-                                         ("Sabrina Weber", "0731 Joinville", "Joinville", "SC"),
-                                         ("Felipe Bauer", "1288 Porto Alegre Centro", "Porto Alegre", "RS")], .55),
-    ("Bruno Cavalcanti", "Recife", "PE", [("Tatiane Lins", "0519 Boa Viagem", "Recife", "PE")], .25),
+                                         ("Diego Souza", "1137 Asa Sul", "Brasília", "DF")]),
 ]
+# Quantos clientes de cada etapa cada agência tem: dá um funil realista sem encher a tela.
+FUNIL = ["novo"] * 3 + ["contatado"] * 4 + ["respondeu"] * 2 + ["negociando"] * 2 + ["documentacao", "vendido", "perdido"]
 NOMES = ["Ana", "Bruno", "Carla", "Daniel", "Elaine", "Fábio", "Gisele", "Hugo", "Isabela", "Jorge", "Kátia", "Leandro",
-         "Mônica", "Nelson", "Olívia", "Pedro", "Quésia", "Rodrigo", "Simone", "Túlio", "Vera", "Wagner", "Yasmin", "Zeca"]
-SOBRENOMES = ["Silva", "Souza", "Oliveira", "Santos", "Costa", "Pereira", "Almeida", "Ribeiro", "Carvalho", "Gomes",
+         "Mônica", "Nelson", "Olívia", "Pedro", "Rodrigo", "Simone", "Túlio", "Vera", "Wagner", "Yasmin"]
+SOBRENOMES = ["Silva", "Souza", "Oliveira", "Santos", "Costa", "Almeida", "Ribeiro", "Carvalho", "Gomes",
               "Martins", "Araújo", "Barbosa", "Rocha", "Dias", "Teixeira", "Moreira", "Freitas", "Nunes", "Lopes"]
-PRODUTOS = [("imóvel", (150_000, 600_000)), ("auto", (50_000, 160_000)), ("pesados", (250_000, 700_000)),
-            ("moto", (15_000, 40_000)), ("serviços", (10_000, 30_000))]
+PRODUTOS = [("imóvel", (150_000, 500_000)), ("auto", (50_000, 150_000)), ("pesados", (250_000, 600_000)),
+            ("moto", (15_000, 40_000))]
 
 
-def etapa_sorteada(forca):
-    x = random.random()
-    faixas = [("vendido", .07 * forca + .02), ("documentacao", .05 * forca + .01), ("negociando", .08 * forca + .02),
-              ("respondeu", .12 * forca + .03), ("contatado", .38), ("perdido", .05), ("optout", .01)]
-    for etapa, p in faixas:
-        if x < p:
-            return etapa
-        x -= p
-    return "novo"
-
-
-def quando(dias):
-    return (datetime.now() - timedelta(days=dias, hours=random.uniform(0, 8))).strftime("%Y-%m-%d %H:%M:%S")
+def ts(horas_atras):
+    return (datetime.now() - timedelta(hours=horas_atras)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 db.iniciar()
 usados = set()
 with db.conectar() as conn:
-    for nome_rep, cidade, uf, gerentes, forca in REDE:
+    for nome_rep, cidade, uf, gerentes in REDE:
         rid = conn.execute("INSERT INTO representantes (nome, telefone, cidade, uf, criado_em) VALUES (?, ?, ?, ?, ?)",
-                           (nome_rep, f"55{random.randint(11, 99)}9{random.randint(10_000_000, 99_999_999)}", cidade, uf,
-                            quando(90))).lastrowid
+                           (nome_rep, f"55319{random.randint(10_000_000, 99_999_999)}", cidade, uf, ts(24 * 60))).lastrowid
         for nome_g, agencia, cid_g, uf_g in gerentes:
             gid = conn.execute(
-                "INSERT INTO gerentes (nome, agencia, token, criado_em, representante_id, cidade, uf) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (nome_g, agencia, secrets.token_urlsafe(24), quando(80), rid, cid_g, uf_g)).lastrowid
-            ultimo = None
-            for _ in range(random.randint(1, 4) + round(3 * forca)):  # listas desse gerente
-                dias = random.randint(0, 45)
-                lista = []
-                for _ in range(random.randint(12, 35)):
-                    while True:
-                        nome = f"{random.choice(NOMES)} {random.choice(SOBRENOMES)} {random.choice(SOBRENOMES)}"
-                        if nome not in usados:
-                            usados.add(nome)
-                            break
-                    produto, (lo, hi) = random.choice(PRODUTOS)
-                    lista.append({"nome": nome, "produto": produto, "valor_credito": round(random.uniform(lo, hi), -3),
-                                  "telefone": f"55{random.randint(11, 99)}9{random.randint(10_000_000, 99_999_999)}"})
-                lote_id, _, _ = db.importar_lote(conn, lista, f"Enviado pelo celular · {nome_g}", 1, gerente_id=gid)
-                conn.execute("UPDATE lotes SET criado_em = ?, visto = 1 WHERE id = ?", (quando(dias), lote_id))
-                for c in lista:
-                    conn.execute("UPDATE clientes SET etapa = ?, atualizado_em = ? WHERE nome = ?",
-                                 (etapa_sorteada(forca), quando(random.randint(0, dias)), c["nome"].title()))
-                ultimo = max(ultimo or "", quando(dias))
-            conn.execute("UPDATE gerentes SET ultimo_envio = ? WHERE id = ?", (ultimo, gid))
-    # Interessados já repassados aos representantes (os de hoje e de ontem ainda sem abrir).
-    for c in conn.execute("SELECT id, atualizado_em FROM clientes WHERE etapa IN ('respondeu', 'negociando', 'documentacao', 'vendido')").fetchall():
-        visto = 0 if c["atualizado_em"] >= quando(1) else 1
-        conn.execute("UPDATE clientes SET repasse_em = ?, repasse_visto = ? WHERE id = ?", (c["atualizado_em"], visto, c["id"]))
+                "INSERT INTO gerentes (nome, agencia, token, criado_em, representante_id, cidade, uf, ultimo_envio) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (nome_g, agencia, secrets.token_urlsafe(24), ts(24 * 40), rid, cid_g, uf_g, ts(random.randint(2, 30)))).lastrowid
+            lista = []
+            for _ in FUNIL:
+                while True:
+                    nome = f"{random.choice(NOMES)} {random.choice(SOBRENOMES)} {random.choice(SOBRENOMES)}"
+                    if nome not in usados:
+                        usados.add(nome)
+                        break
+                produto, (lo, hi) = random.choice(PRODUTOS)
+                lista.append({"nome": nome, "produto": produto, "valor_credito": round(random.uniform(lo, hi), -3),
+                              "telefone": f"55{random.choice([31, 11, 21, 62, 61])}9{random.randint(10_000_000, 99_999_999)}"})
+            lote_id, _, _ = db.importar_lote(conn, lista, f"Enviado pelo celular · {nome_g}", 1, gerente_id=gid)
+            conn.execute("UPDATE lotes SET criado_em = ?, visto = 1 WHERE id = ?", (ts(random.randint(30, 200)), lote_id))
+            for c, etapa in zip(lista, FUNIL):
+                cid = conn.execute("SELECT id FROM clientes WHERE nome = ?", (c["nome"].title(),)).fetchone()["id"]
+                mexeu = random.uniform(1, 120)  # horas desde a última movimentação
+                tentativas = {"novo": 0, "contatado": random.randint(1, 3)}.get(etapa, random.randint(1, 2))
+                # Follow-up vencido para os frios (entram na fila de hoje); interessados seguem com o representante.
+                proximo = ts(random.uniform(0, 20)) if etapa in ("novo", "contatado") else None
+                conn.execute(
+                    "UPDATE clientes SET etapa = ?, tentativas = ?, ultimo_contato = ?, proximo_contato = ?, atualizado_em = ? "
+                    "WHERE id = ?", (etapa, tentativas, ts(mexeu) if tentativas else None, proximo, ts(mexeu), cid))
+                if etapa in ("respondeu", "negociando", "documentacao", "vendido"):
+                    conn.execute("UPDATE clientes SET repasse_em = ?, repasse_visto = ? WHERE id = ?",
+                                 (ts(mexeu), 0 if mexeu < 30 and etapa != "vendido" else 1, cid))
     total = conn.execute("SELECT COUNT(*) FROM clientes").fetchone()[0]
-print(f"ok: {len(REDE)} representantes, {sum(len(r[3]) for r in REDE)} gerentes, {total} clientes · {DEMO_DB}")
+print(f"ok: {len(REDE)} representantes, {sum(len(r[3]) for r in REDE)} agências, {total} clientes · {DEMO_DB}")

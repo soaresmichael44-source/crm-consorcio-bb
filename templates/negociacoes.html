@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block titulo %}Negociações{% endblock %}
+{% block head %}
+<style>
+main{max-width:none}
+.abas{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px}
+.abas a{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;background:#fff;border:1px solid var(--borda);color:var(--texto);font-weight:600;font-size:14px}
+.abas a.on{background:var(--azul);border-color:var(--azul);color:#fff}
+.quadro{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:12px;overflow-x:auto;padding-bottom:10px}
+.col{background:#eef1f8;border-radius:12px;padding:10px;min-height:200px}
+.col h3{margin:0 2px 2px;font-size:13px;display:flex;align-items:center;gap:6px}
+.col h3 b{margin-left:auto;background:#fff;border-radius:10px;padding:1px 8px;font-size:12px}
+.col .soma{font-size:11px;color:var(--suave);margin:0 2px 10px}
+.col.respondeu{background:#fdf0dc}.col.negociando{background:#fde7dc}.col.documentacao{background:#fff6d6}.col.vendido{background:#dff6ec}
+.cartao{display:block;background:#fff;border-radius:10px;padding:10px 11px;margin-bottom:8px;color:var(--texto);border:1px solid transparent;box-shadow:0 1px 2px rgba(22,36,92,.06)}
+.cartao:hover{border-color:var(--azul-2)}
+.cartao .nm{font-weight:700;font-size:14px;line-height:1.25}
+.cartao .vl{font-weight:800;color:var(--azul);font-size:13px;margin-top:3px}
+.cartao .ag{font-size:11px;color:var(--suave);margin-top:4px;line-height:1.35}
+.cartao .rodape{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--suave)}
+.cartao .rep{background:#e8eefe;color:#2d4bc2;border-radius:6px;padding:1px 6px;font-weight:600}
+.cartao .novo{background:var(--amarelo);color:var(--azul);border-radius:5px;padding:1px 5px;font-weight:800;font-size:10px}
+.mais{font-size:12px;color:var(--suave);text-align:center;padding:4px}
+</style>
+{% endblock %}
+{% block corpo %}
+<div class="linha" style="align-items:flex-start">
+  <div><h1>Negociações</h1>
+    <p class="sub">{{ total }} clientes · cada coluna é uma etapa. Toque no cliente para abrir a ficha.{% if fora %} {{ fora }} fora do momento (perdidos ou pediram para sair).{% endif %}</p></div>
+</div>
+{% if reps %}
+<div class="abas">
+  <a href="/negociacoes" class="{{ 'on' if rep_id is none }}">Todos</a>
+  {% for r in reps %}<a href="/negociacoes?rep={{ r.id }}" class="{{ 'on' if rep_id == r.id }}">{{ r.nome }}</a>{% endfor %}
+  <a href="/negociacoes?rep=0" class="{{ 'on' if rep_id == 0 }}">Direto (Mobie)</a>
+</div>
+{% endif %}
+<div class="quadro">
+  {% for col in colunas %}
+  <div class="col {{ col.etapa }}">
+    <h3>{{ col.titulo }}<b>{{ col.n }}</b></h3>
+    <div class="soma">{{ col.credito|compacto }} em crédito</div>
+    {% for c in col.itens %}
+    <a class="cartao" href="/cliente/{{ c.id }}">
+      <div class="nm">{{ c.nome }}</div>
+      {% if c.valor_credito %}<div class="vl">{{ c.valor_credito|compacto }}{% if c.produto %} · <span style="font-weight:600;color:var(--suave)">{{ c.produto }}</span>{% endif %}</div>{% endif %}
+      {% if c.gerente_nome %}<div class="ag">🏦 {% if c.agencia %}ag. {{ c.agencia }} · {% endif %}{{ c.gerente_nome }}</div>{% endif %}
+      <div class="rodape">
+        {% if not rep_logado and rep_id is none %}<span class="rep">{{ c.rep_nome.split(' ')[0] if c.rep_nome else 'Direto' }}</span>{% endif %}
+        {% if c.repasse_em and not c.repasse_visto and c.etapa != 'vendido' %}<span class="novo">NOVO</span>{% endif %}
+        <span style="margin-left:auto">há {{ c.ha }}</span>
+      </div>
+    </a>
+    {% else %}<div class="mais">—</div>{% endfor %}
+    {% if col.n > col.itens|length %}<div class="mais">+ {{ col.n - col.itens|length }} em <a href="/clientes?etapa={{ col.etapa }}{{ '&rep=' ~ rep_id if rep_id is not none }}">Clientes</a></div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
