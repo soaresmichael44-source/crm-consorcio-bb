@@ -159,6 +159,9 @@ MIGRACOES = [
     # Cliente de agência com representante que se interessou: sai do follow-up central e vai para ele atender.
     ("clientes", "repasse_em", "TEXT"),
     ("clientes", "repasse_visto", "INTEGER NOT NULL DEFAULT 0"),
+    # Cliente que já existia e apareceu na lista de OUTRO gerente: fica com quem trouxe primeiro,
+    # mas o consultor é avisado no Painel para decidir (texto do aviso; vazio = nada a conferir).
+    ("clientes", "alerta_duplicidade", "TEXT"),
 ]
 
 ETAPAS_REPASSE = ("respondeu", "negociando", "documentacao")
@@ -477,6 +480,7 @@ def inserir_cliente(conn, c, lote_id=None):
             (*sets.values(), existente["id"]),
         )
         registrar(conn, existente["id"], "sistema", "interna", "Cliente apareceu novamente numa lista do BB; dados atualizados.")
+        _avisar_duplicidade(conn, existente["id"], lote_id)
         return existente["id"], False
     ts = agora()
     cur = conn.execute(
@@ -487,6 +491,33 @@ def inserir_cliente(conn, c, lote_id=None):
     )
     registrar(conn, cur.lastrowid, "sistema", "interna", "Cliente cadastrado a partir de lista do BB.")
     return cur.lastrowid, True
+
+
+def _origem_lote(conn, lote_id):
+    """(gerente_id, nome do gerente, representante_id, nome do representante) de um lote, ou Nones."""
+    r = conn.execute(
+        "SELECT g.id AS gid, g.nome AS gnome, r.id AS rid, r.nome AS rnome FROM lotes l "
+        "LEFT JOIN gerentes g ON g.id = l.gerente_id LEFT JOIN representantes r ON r.id = g.representante_id "
+        "WHERE l.id = ?", (lote_id,)).fetchone() if lote_id else None
+    return (r["gid"], r["gnome"], r["rid"], r["rnome"]) if r else (None, None, None, None)
+
+
+def _avisar_duplicidade(conn, cliente_id, lote_novo):
+    """Mesmo cliente veio de outro gerente: não muda o dono (fica com quem trouxe primeiro), só avisa."""
+    atual = conn.execute("SELECT lote_id FROM clientes WHERE id = ?", (cliente_id,)).fetchone()
+    if not atual or not lote_novo or atual["lote_id"] == lote_novo:
+        return
+    g1, gn1, r1, rn1 = _origem_lote(conn, atual["lote_id"])
+    g2, gn2, r2, rn2 = _origem_lote(conn, lote_novo)
+    if not g2 or g1 == g2:
+        return  # o mesmo gerente mandando de novo (ou importação manual): atualização normal
+    if r1 != r2:
+        texto = (f"Também veio na lista de {gn2} ({rn2 or 'operação direta'}). "
+                 f"Continua com {rn1 or 'a operação direta'}, que trouxe primeiro ({gn1 or 'importação manual'}).")
+    else:
+        texto = f"Também veio na lista de {gn2}. Continua na carteira de {gn1 or 'importação manual'}, que mandou primeiro."
+    conn.execute("UPDATE clientes SET alerta_duplicidade = ? WHERE id = ?", (texto, cliente_id))
+    registrar(conn, cliente_id, "sistema", "interna", "Possível duplicidade: " + texto)
 
 
 def importar_lote(conn, clientes, descricao="", qtd_imagens=0, gerente_id=None):

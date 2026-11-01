@@ -7,6 +7,9 @@
   {% if c.pausado %}<span class="tag">cadência pausada</span>{% endif %}
   <span class="sp"></span><a class="btn peq" href="/documentos?cliente={{ c.id }}">📄 Enviar documentos ao gerente</a>
 </div>
+{% if c.alerta_duplicidade and not rep_logado %}<div class="aviso linha" id="avisoDup" style="justify-content:space-between">
+  <span>⚠ <strong>Possível duplicidade:</strong> {{ c.alerta_duplicidade }}</span>
+  <button class="btn peq" onclick="api('/api/cliente/{{ c.id }}/duplicidade-vista').then(()=>avisoDup.remove())">Ok, conferido</button></div>{% endif %}
 
 <div class="grid g2" style="align-items:start">
   <div>

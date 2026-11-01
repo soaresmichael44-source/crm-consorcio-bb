@@ -269,7 +269,11 @@ def painel():
             "SELECT l.*, g.nome AS gerente FROM lotes l LEFT JOIN gerentes g ON g.id = l.gerente_id WHERE 1=1" + fl +
             " ORDER BY l.id DESC LIMIT 6", al).fetchall()
         gerentes = [] if rid else conn.execute("SELECT id, nome FROM gerentes WHERE ativo = 1 ORDER BY nome").fetchall()
-        return render_template("painel.html", por_etapa=por_etapa, total=sum(por_etapa.values()), fila_n=len(fila),
+        # Clientes repetidos entre listas de gerentes diferentes: só o consultor decide de quem fica.
+        duplicados = [] if rid else conn.execute(
+            "SELECT id, nome, alerta_duplicidade FROM clientes WHERE alerta_duplicidade IS NOT NULL "
+            "ORDER BY atualizado_em DESC LIMIT 20").fetchall()
+        return render_template("painel.html", duplicados=duplicados, por_etapa=por_etapa, total=sum(por_etapa.values()), fila_n=len(fila),
                                credito_fechado=credito_fechado, reps=reps, recentes=recentes, parados=parados,
                                ha=_ha_quanto, cfg=cfg, lotes=lotes, recebidos=recebidos, gerentes=gerentes,
                                docs_clientes=docs_clientes, envios_hoje=sdr.envios_hoje(conn),
@@ -606,6 +610,15 @@ def lote_gerente(lid):
     gid = request.get_json(force=True).get("gerente_id") or None
     with db.conectar() as conn:
         conn.execute("UPDATE lotes SET gerente_id = ? WHERE id = ?", (gid, lid))
+    return jsonify(ok=True)
+
+
+@app.post("/api/cliente/<int:cid>/duplicidade-vista")
+@so_admin
+def duplicidade_vista(cid):
+    with db.conectar() as conn:
+        conn.execute("UPDATE clientes SET alerta_duplicidade = NULL WHERE id = ?", (cid,))
+        db.registrar(conn, cid, "sistema", "interna", "Aviso de duplicidade conferido pelo consultor.")
     return jsonify(ok=True)
 
 

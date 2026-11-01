@@ -57,6 +57,13 @@
   <button class="btn peq" onclick="api('/api/lotes/vistos').then(()=>avisoRecebidos.remove())">Ok, visto</button>
 </div>{% endif %}
 
+{% if duplicados %}<details class="aviso" style="background:#fdeee6;border-color:#f3c3a8;color:#7a3410">
+  <summary style="cursor:pointer"><strong>{{ duplicados|length }} {{ 'cliente repetido' if duplicados|length == 1 else 'clientes repetidos' }}</strong> em listas de gerentes diferentes. Toque para conferir.</summary>
+  {% for d in duplicados %}<div class="linha" id="dup{{ d.id }}" style="padding:8px 0;border-top:1px solid #f3c3a8;font-size:13px">
+    <span><a href="/cliente/{{ d.id }}"><strong>{{ d.nome }}</strong></a> · {{ d.alerta_duplicidade }}</span><span class="sp"></span>
+    <button class="btn peq" onclick="api('/api/cliente/{{ d.id }}/duplicidade-vista').then(()=>document.getElementById('dup{{ d.id }}').remove())">Ok, conferido</button></div>{% endfor %}
+</details>{% endif %}
+
 {% set interessados = por_etapa.get('respondeu', 0) %}
 {% set negociando = por_etapa.get('negociando', 0) + por_etapa.get('documentacao', 0) %}
 <div class="numeros">

@@ -73,6 +73,22 @@ que este guia.
 Preencha `BREVO_API_KEY` e `BREVO_REMETENTE_EMAIL` no `.env` (conta grátis em brevo.com, remetente
 verificado), reinicie o serviço e marque “Mandar e-mail automático” em Configurações.
 
+## Testes automáticos
+
+Antes de publicar qualquer mudança:
+
+    python3 -m unittest discover -s tests -v
+
+Rodam num banco temporário (nunca no real) e cobrem: importação de lista, campos ausentes,
+duplicidade entre gerentes/representantes, permissões (representante só vê a carteira dele,
+gerente só pelo link e sem mensagens), repasse do interessado, pedido para sair e cadência.
+
+## Duplicidade
+
+Se um cliente que já existe aparece na lista de **outro gerente**, ele continua com quem trouxe
+primeiro e o Painel mostra "clientes repetidos" para você conferir (a ficha do cliente também avisa).
+O mesmo gerente reenviando a lista só atualiza os dados, sem aviso.
+
 ## Nuvem (Supabase + Render)
 
 - O mesmo código roda no Mac (SQLite + pastas locais) e na nuvem: com `DATABASE_URL` usa o Postgres
