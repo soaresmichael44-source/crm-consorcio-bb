@@ -180,7 +180,7 @@ def _globais():
             novos = conn.execute("SELECT COUNT(*) AS n FROM clientes WHERE repasse_em IS NOT NULL AND repasse_visto = 0 "
                                  "AND etapa NOT IN ('vendido', 'perdido', 'optout')" + filtro, args).fetchone()["n"]
     return {"ETAPAS": db.ETAPAS, "ETAPAS_DICT": db.ETAPAS_DICT, "fmt_tel": db.telefone_formatado, "fmt_cpf": db.cpf_formatado,
-            "rep_logado": g.get("rep"), "repasses_novos": novos}
+            "rep_logado": g.get("rep"), "repasses_novos": novos, "GATILHOS": ia.OBJETIVOS}
 
 
 @app.template_filter("compacto")
@@ -412,6 +412,7 @@ def fila():
         if aba:
             itens = [i for i in itens if (i["rep_id"] or 0) == int(aba)]
         return render_template("fila.html", itens=itens[:200], total=len(itens), cfg=cfg, envios_hoje=sdr.envios_hoje(conn),
+                               so_acompanha=bool(g.rep and not g.rep["faz_followup"]),
                                horario_ok=sdr.dentro_do_horario(cfg), abas=abas if reps else [], aba=aba)
 
 
@@ -498,6 +499,11 @@ def representante(rid):
                 return redirect(url_for("representante", rid=rid) + "#acesso")
             if request.form.get("acao") == "ativo":
                 conn.execute("UPDATE representantes SET ativo = ? WHERE id = ?", (0 if r["ativo"] else 1, rid))
+            elif request.form.get("acao") == "followup":
+                conn.execute("UPDATE representantes SET faz_followup = ? WHERE id = ?", (0 if r["faz_followup"] else 1, rid))
+                # As mensagens já escritas estavam no nome antigo: a IA reescreve na próxima rodada.
+                conn.execute("UPDATE clientes SET rascunho = NULL WHERE lote_id IN (SELECT l.id FROM lotes l JOIN gerentes g "
+                             "ON g.id = l.gerente_id WHERE g.representante_id = ?)", (rid,))
             else:
                 conn.execute("UPDATE representantes SET nome = ?, telefone = ?, email = ?, cidade = ?, uf = ? WHERE id = ?",
                              (" ".join(request.form.get("nome", "").split()) or r["nome"],
@@ -777,6 +783,7 @@ def api_enviado(cid):
 
 
 @app.post("/api/cliente/<int:cid>/enviar-auto")
+@so_admin
 def api_enviar_auto(cid):
     texto = (request.get_json(force=True).get("texto") or "").strip()
     with db.conectar() as conn:

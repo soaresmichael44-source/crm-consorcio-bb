@@ -162,6 +162,9 @@ MIGRACOES = [
     # Cliente que já existia e apareceu na lista de OUTRO gerente: fica com quem trouxe primeiro,
     # mas o consultor é avisado no Painel para decidir (texto do aviso; vazio = nada a conferir).
     ("clientes", "alerta_duplicidade", "TEXT"),
+    # 1 = o próprio representante faz o follow-up dos clientes dele (mensagens no nome dele, ele trabalha a fila);
+    # 0 = a operação central faz, no nome do consultor.
+    ("representantes", "faz_followup", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 ETAPAS_REPASSE = ("respondeu", "negociando", "documentacao")
@@ -183,6 +186,15 @@ def filtro_rep(rep_id, coluna_lote="c.lote_id"):
         return "", []
     return (f" AND {coluna_lote} IN (SELECT l2.id FROM lotes l2 JOIN gerentes g2 ON g2.id = l2.gerente_id "
             "WHERE g2.representante_id = ?)"), [rep_id]
+
+
+def cfg_do_cliente(conn, cliente_id, cfg):
+    """Configuração para escrever a mensagem: se o representante do cliente faz o próprio follow-up,
+    a mensagem sai no nome dele; senão, no nome do consultor da central."""
+    r = conn.execute(
+        "SELECT r.nome FROM clientes c JOIN lotes l ON l.id = c.lote_id JOIN gerentes g ON g.id = l.gerente_id "
+        "JOIN representantes r ON r.id = g.representante_id WHERE c.id = ? AND r.faz_followup = 1", (cliente_id,)).fetchone()
+    return {**cfg, "nome_consultor": r["nome"]} if r else cfg
 
 
 def consultor_do_gerente(conn, gerente, cfg):

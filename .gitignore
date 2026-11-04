@@ -13,3 +13,4 @@ demo/*.html
 __pycache__/
 .DS_Store
 n8n/
+qrcodes/

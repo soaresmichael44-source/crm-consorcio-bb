@@ -104,6 +104,15 @@ th.num{text-align:right}
   <p class="muted" style="margin:10px 0 0;font-size:12px">O gerente ganha na hora o Portal do Gerente e o link de documentos. As listas que ele mandar entram na produção de {{ r.nome.split(' ')[0] }}.</p>
 </form>
 
+<div class="card" id="followup">
+  <h2>Quem faz o follow-up dos clientes de {{ r.nome.split(' ')[0] }}</h2>
+  <div class="linha">
+    <p class="muted" style="margin:0;flex:1;min-width:240px">{% if r.faz_followup %}<strong>{{ r.nome.split(' ')[0] }} faz o próprio follow-up.</strong> As mensagens saem no nome dele(a), seguindo os gatilhos de cada etapa, e ele(a) trabalha a fila. Você continua vendo tudo na aba {{ r.nome.split(' ')[0] }}.{% else %}<strong>A sua central faz o follow-up</strong>, no seu nome. {{ r.nome.split(' ')[0] }} só acompanha e atende quem se interessar.{% endif %}</p>
+    <form method="post" style="margin:0"><input type="hidden" name="acao" value="followup">
+      <button class="btn {{ '' if r.faz_followup else 'am' }}">{{ 'Voltar para a central' if r.faz_followup else (r.nome.split(' ')[0] ~ ' faz o follow-up') }}</button></form>
+  </div>
+</div>
+
 <div class="card" id="acesso">
   <h2>Acesso de {{ r.nome.split(' ')[0] }} ao CRM</h2>
   {% if r.senha_hash %}

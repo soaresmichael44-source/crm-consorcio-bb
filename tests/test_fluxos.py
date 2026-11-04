@@ -251,6 +251,33 @@ class RepasseEFollowUp(Base):
         dias = [(datetime.strptime(sdr.proximo_contato(cfg, n), "%Y-%m-%d %H:%M:%S").date() - hoje).days for n in (1, 2, 3, 4, 9)]
         self.assertEqual(dias, [1, 2, 4, 15, 15])
 
+    def test_mensagem_sai_no_nome_de_quem_faz_o_follow_up(self):
+        with db.conectar() as conn:
+            rep = novo_rep(conn, "Carina")
+            nome_rep = conn.execute("SELECT nome FROM representantes WHERE id = ?", (rep,)).fetchone()["nome"]
+            tel = telefone()
+            lista(conn, novo_gerente(conn, rep), {"nome": "Ivo", "telefone": tel})
+            cid = cliente_por_tel(conn, tel)["id"]
+            cfg = db.config(conn)
+            self.assertEqual(db.cfg_do_cliente(conn, cid, cfg)["nome_consultor"], cfg["nome_consultor"])  # central
+            conn.execute("UPDATE representantes SET faz_followup = 1 WHERE id = ?", (rep,))
+            self.assertEqual(db.cfg_do_cliente(conn, cid, cfg)["nome_consultor"], nome_rep)
+
+    def test_representante_que_faz_follow_up_trabalha_a_fila_so_dele(self):
+        with db.conectar() as conn:
+            rep, outro = novo_rep(conn, "Carina"), novo_rep(conn, "Outro")
+            conn.execute("UPDATE representantes SET faz_followup = 1 WHERE id = ?", (rep,))
+            lista(conn, novo_gerente(conn, rep), {"nome": "Joana Da Carina", "telefone": telefone()})
+            lista(conn, novo_gerente(conn, outro), {"nome": "Kleber De Outro", "telefone": telefone()})
+            cid_outro = conn.execute("SELECT id FROM clientes WHERE nome = 'Kleber De Outro'").fetchone()["id"]
+        self.como_rep(rep)
+        html = self.c.get("/fila").get_data(as_text=True)
+        self.assertIn("Joana Da Carina", html)
+        self.assertNotIn("Kleber De Outro", html)
+        self.assertIn("Abrir no WhatsApp", html)  # tela de trabalho, não só acompanhamento
+        self.assertEqual(self.c.post(f"/api/cliente/{cid_outro}/enviado", json={"texto": "oi"}).status_code, 404)
+        self.assertEqual(self.c.post(f"/api/cliente/{cid_outro}/enviar-auto", json={"texto": "oi"}).status_code, 403)
+
     def test_envio_automatico_vem_desligado(self):
         with db.conectar() as conn:
             self.assertEqual(db.config(conn)["envio_automatico"], "0")

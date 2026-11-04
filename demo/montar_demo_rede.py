@@ -29,6 +29,8 @@ REDE = [  # representante, cidade, UF, gerentes (nome, agência, cidade, UF)
                                                  ("Thiago Neves", "2875 Niterói", "Niterói", "RJ")]),
     ("Patrícia Gomes", "Goiânia", "GO", [("Marcelo Ribeiro", "0086 Setor Bueno", "Goiânia", "GO"),
                                          ("Diego Souza", "1137 Asa Sul", "Brasília", "DF")]),
+    ("Carina Albuquerque", "Curitiba", "PR", [("Renato Ferraz", "3041 Batel", "Curitiba", "PR"),
+                                              ("Luciana Prates", "1288 Centro", "Londrina", "PR")]),
 ]
 # Quantos clientes de cada etapa cada agência tem: dá um funil realista sem encher a tela.
 FUNIL = ["novo"] * 3 + ["contatado"] * 4 + ["respondeu"] * 2 + ["negociando"] * 2 + ["documentacao", "vendido", "perdido"]

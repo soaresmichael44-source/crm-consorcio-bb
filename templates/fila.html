@@ -17,7 +17,9 @@
 {% block corpo %}
 <div class="linha" style="align-items:flex-start">
   <div><h1>Fila de follow-up</h1>
-  {% if rep_logado %}
+  {% if rep_logado and not so_acompanha %}
+  <p class="sub">{{ itens|length }} cliente(s) com contato vencido hoje. As mensagens já estão escritas no seu nome, seguindo o gatilho de cada etapa: confira, abra no WhatsApp e envie. Quem se interessar vai para <a href="/atender">Para atender</a>.</p></div>
+  {% elif rep_logado %}
   <p class="sub">{{ itens|length }} cliente(s) das suas agências em follow-up pela operação central. Aqui é só acompanhamento: quando um deles se interessar, ele vai para <a href="/atender">Para atender</a>.</p></div>
   {% else %}
   <p class="sub">{{ total }} cliente(s) com contato vencido · {{ envios_hoje }}/{{ cfg.max_envios_dia }} mensagens hoje ·
@@ -30,23 +32,25 @@
 <div class="abas">{% for a in abas %}<a href="/fila{{ '?rep=' ~ a.id if a.id }}" class="{{ 'on' if a.id == aba }}">{{ a.nome }}<b>{{ a.n }}</b></a>{% endfor %}</div>
 {% endif %}
 <div id="st" class="muted" style="margin-bottom:10px"></div>
-{% if rep_logado %}
+{% if so_acompanha %}
 <div class="card tabela-scroll">
 <table>
-  <thead><tr><th>Cliente</th><th>Agência / gerente</th><th>Produto</th><th>Etapa</th><th>Contato nº</th><th>Último contato</th></tr></thead>
+  <thead><tr><th>Cliente</th><th>Agência / gerente</th><th>Produto</th><th>Etapa</th><th>Contato nº</th><th>Gatilho desta etapa</th><th>Último contato</th></tr></thead>
   <tbody>
   {% for c in itens %}
     <tr><td><strong>{{ c.nome }}</strong></td>
       <td>{% if c.agencia %}ag. {{ c.agencia }}{% else %}—{% endif %}<br><small class="muted">{{ c.gerente_nome or '' }}</small></td>
       <td>{{ c.produto or '—' }}</td><td><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span></td>
-      <td>{{ c.tentativas + 1 }}</td><td class="muted">{{ c.ultimo_contato|data }}</td></tr>
-  {% else %}<tr><td colspan="6" class="muted">Nenhum cliente das suas agências na fila agora.</td></tr>{% endfor %}
+      <td>{{ c.tentativas + 1 }}</td>
+      <td style="font-size:12px;max-width:260px">🎯 {{ GATILHOS[[c.tentativas, GATILHOS|length - 1]|min] }}{% if c.rascunho %}<br><small class="muted">✉ mensagem pronta</small>{% endif %}</td>
+      <td class="muted">{{ c.ultimo_contato|data }}</td></tr>
+  {% else %}<tr><td colspan="7" class="muted">Nenhum cliente das suas agências na fila agora.</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>
 {% else %}
-{% if not horario_ok %}<div class="aviso">Fora do horário comercial configurado. Você ainda pode enviar manualmente, mas evite mensagens à noite e aos domingos.</div>{% endif %}
-{% if envios_hoje >= cfg.max_envios_dia|int %}<div class="aviso erro">Limite diário de mensagens atingido. Enviar muito mais do que isso num mesmo número aumenta o risco de bloqueio pelo WhatsApp.</div>{% endif %}
+{% if not horario_ok and not rep_logado %}<div class="aviso">Fora do horário comercial configurado. Você ainda pode enviar manualmente, mas evite mensagens à noite e aos domingos.</div>{% endif %}
+{% if envios_hoje >= cfg.max_envios_dia|int and not rep_logado %}<div class="aviso erro">Limite diário de mensagens atingido. Enviar muito mais do que isso num mesmo número aumenta o risco de bloqueio pelo WhatsApp.</div>{% endif %}
 
 <div class="card">
 {% for c in itens %}
@@ -63,13 +67,15 @@
         {% if c.situacao_bb %}BB: {{ c.situacao_bb }}<br>{% endif %}
         Contato nº {{ c.tentativas + 1 }}{% if c.ultimo_contato %} · último {{ c.ultimo_contato|data }}{% endif %}
       </div>
+      <div style="margin-top:8px;font-size:12px;background:#fff8dc;border-radius:8px;padding:6px 8px;color:#6b5200">
+        🎯 <strong>Gatilho desta etapa:</strong> {{ GATILHOS[[c.tentativas, GATILHOS|length - 1]|min] }}</div>
     </div>
     <div>
       <textarea id="txt{{ c.id }}" placeholder="Clique em “Redigir” para a IA escrever a mensagem desta etapa">{{ c.rascunho or '' }}</textarea>
       <div class="linha" style="margin-top:8px">
         {% if c.telefone %}
         <button class="btn wa" onclick="abrirWhats({{ c.id }}, '{{ c.telefone }}')">Abrir no WhatsApp e marcar enviado</button>
-        {% if cfg.modo_whatsapp == 'ponte' %}<button class="btn" onclick="enviarAuto({{ c.id }})">Enviar pelo robô</button>{% endif %}
+        {% if cfg.modo_whatsapp == 'ponte' and not rep_logado %}<button class="btn" onclick="enviarAuto({{ c.id }})">Enviar pelo robô</button>{% endif %}
         {% endif %}
         <button class="btn" onclick="redigir({{ c.id }})">{{ 'Reescrever' if c.rascunho else 'Redigir' }}</button>
         <span class="sp"></span>
@@ -80,7 +86,7 @@
     </div>
   </div>
 {% else %}
-  <p class="muted">Nenhum follow-up vencido agora. 🎯 <a href="/importar">Importar nova lista</a></p>
+  <p class="muted">Nenhum follow-up vencido agora.{% if not rep_logado %} 🎯 <a href="/importar">Importar nova lista</a>{% endif %}</p>
 {% endfor %}
 </div>
 {% endif %}

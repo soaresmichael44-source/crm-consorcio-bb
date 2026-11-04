@@ -67,7 +67,7 @@
 {% set interessados = por_etapa.get('respondeu', 0) %}
 {% set negociando = por_etapa.get('negociando', 0) + por_etapa.get('documentacao', 0) %}
 <div class="numeros">
-  <a class="num" href="/fila"><b>{{ fila_n }}</b><span>{{ 'em follow-up pela central' if rep_logado else 'na fila de follow-up hoje' }}</span></a>
+  <a class="num" href="/fila"><b>{{ fila_n }}</b><span>{{ ('na sua fila de follow-up' if rep_logado.faz_followup else 'em follow-up pela central') if rep_logado else 'na fila de follow-up hoje' }}</span></a>
   <a class="num quente" href="/negociacoes"><b>{{ interessados }}</b><span>interessados</span></a>
   <a class="num quente" href="/negociacoes"><b>{{ negociando }}</b><span>negociando ou com documentação</span></a>
   <a class="num" href="/clientes?etapa=vendido"><b>{{ por_etapa.get('vendido', 0) }}</b><span>fechados</span></a>

@@ -89,7 +89,8 @@ def historico(conn, cliente_id, n=8):
 def preparar_rascunho(conn, cliente, cfg, forcar=False):
     if cliente["rascunho"] and not forcar:
         return cliente["rascunho"]
-    assunto, texto = ia.gerar_mensagem(cliente, historico(conn, cliente["id"]), cliente["tentativas"] + 1, cfg)
+    assunto, texto = ia.gerar_mensagem(cliente, historico(conn, cliente["id"]), cliente["tentativas"] + 1,
+                                       db.cfg_do_cliente(conn, cliente["id"], cfg))
     conn.execute("UPDATE clientes SET rascunho = ?, rascunho_assunto = ?, atualizado_em = ? WHERE id = ?",
                  (texto, assunto, db.agora(), cliente["id"]))
     return texto
