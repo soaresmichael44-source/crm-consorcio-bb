@@ -156,7 +156,9 @@ def gerar_mensagem(cliente, historico, tentativa, cfg, canal="whatsapp"):
         optout=optout, regras_canal=regras,
     )
     for _ in range(3):
-        res = _chamar([{"text": prompt}], max_tokens=4096, temperatura=0.7)
+        # Mensagem curta não precisa do modelo maior, que às vezes fica minutos sobrecarregado: o rápido vem primeiro.
+        res = _chamar([{"text": prompt}], max_tokens=4096, temperatura=0.7,
+                      modelos=[MODELO_LEITURA, MODELO_LEITURA, MODELO, MODELO_RESERVA])
         texto = (res.get("texto") or "").strip()
         if texto and not _OUTRO_ALFABETO.search(texto + (res.get("assunto") or "")):
             break
