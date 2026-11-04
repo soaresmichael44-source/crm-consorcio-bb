@@ -278,6 +278,19 @@ class RepasseEFollowUp(Base):
         self.assertEqual(self.c.post(f"/api/cliente/{cid_outro}/enviado", json={"texto": "oi"}).status_code, 404)
         self.assertEqual(self.c.post(f"/api/cliente/{cid_outro}/enviar-auto", json={"texto": "oi"}).status_code, 403)
 
+    def test_mensagem_com_palavra_de_outro_alfabeto_e_reescrita(self):
+        import ia
+        respostas = iter([{"texto": "Oi, tudo bem? предположить?"}, {"texto": "Oi, tudo bem? Posso te ajudar?"}])
+        original = ia._chamar
+        ia._chamar = lambda *a, **k: next(respostas)
+        try:
+            cliente = {"nome": "Lia", "cidade": "", "produto": "auto", "valor_credito": None, "situacao_bb": "",
+                       "observacoes": "", "extras": None}
+            _, texto = ia.gerar_mensagem(cliente, [], 1, {"nome_consultor": "Carina", "nome_empresa": "Mobie"})
+        finally:
+            ia._chamar = original
+        self.assertTrue(texto.startswith("Oi, tudo bem? Posso te ajudar?"))
+
     def test_envio_automatico_vem_desligado(self):
         with db.conectar() as conn:
             self.assertEqual(db.config(conn)["envio_automatico"], "0")

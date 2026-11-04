@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -14,6 +15,11 @@ MODELO = os.getenv("GEMINI_MODELO") or "gemini-flash-latest"
 MODELO_RESERVA = os.getenv("GEMINI_MODELO_RESERVA") or _FALLBACK.get("MODELO_GEMINI_RESERVA") or "gemini-flash-lite-latest"
 MODELO_LEITURA = os.getenv("GEMINI_MODELO_LEITURA") or "gemini-flash-lite-latest"
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+
+
+# Letras de outros alfabetos (cirílico, grego, árabe, hebraico, chinês, japonês, coreano...): o modelo às vezes
+# solta uma palavra assim no meio do português, e uma mensagem dessas não pode chegar ao cliente.
+_OUTRO_ALFABETO = re.compile(r"[\u0370-\u06ff\u0900-\u0dff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 
 
 class ErroIA(RuntimeError):
@@ -149,8 +155,13 @@ def gerar_mensagem(cliente, historico, tentativa, cfg, canal="whatsapp"):
         objetivo=OBJETIVOS[min(tentativa - 1, len(OBJETIVOS) - 1)],
         optout=optout, regras_canal=regras,
     )
-    res = _chamar([{"text": prompt}], max_tokens=4096, temperatura=0.7)
-    texto = (res.get("texto") or "").strip()
+    for _ in range(3):
+        res = _chamar([{"text": prompt}], max_tokens=4096, temperatura=0.7)
+        texto = (res.get("texto") or "").strip()
+        if texto and not _OUTRO_ALFABETO.search(texto + (res.get("assunto") or "")):
+            break
+    else:
+        raise ErroIA("A IA escreveu a mensagem com palavras de outro idioma três vezes; tente redigir de novo.")
     if optout not in texto:
         texto = f"{texto}\n\n{optout}"
     return (res.get("assunto") or "").strip(), texto
