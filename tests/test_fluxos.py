@@ -103,6 +103,41 @@ class Importacao(Base):
             self.assertEqual((novos, atualizados), (0, 1))
 
 
+class ListasAoVivo(Base):
+    def test_conferencia_completa_quem_a_leitura_rapida_deixou_passar(self):
+        with db.conectar() as conn:
+            gid = novo_gerente(conn, novo_rep(conn))
+            t1, t2, t3 = telefone(), telefone(), telefone()
+            rapida = [{"nome": "Ana Lima", "telefone": t1}, {"nome": "Beto Reis", "telefone": ""}]
+            lote, _, _ = lista(conn, gid, *rapida)
+            minuciosa = [{"nome": "ANA LIMA", "telefone": t1},           # mesma pessoa (nome em maiúscula)
+                         {"nome": "Beto Reis", "telefone": t2},          # mesma pessoa, agora com telefone
+                         {"nome": "Caio Souza", "telefone": t3, "confianca": "baixa"}]  # faltava
+            res = db.completar_lote(conn, lote, rapida, minuciosa)
+            self.assertEqual(res["adicionados"], ["Caio Souza"])
+            self.assertEqual(res["duvidosos"], ["Caio Souza"])
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM clientes WHERE lote_id = ?", (lote,)).fetchone()[0], 3)
+            self.assertEqual(conn.execute("SELECT qtd_clientes FROM lotes WHERE id = ?", (lote,)).fetchone()[0], 3)
+
+    def test_representante_ve_a_lista_que_chegou_sem_o_telefone_completo(self):
+        with db.conectar() as conn:
+            rep, outro = novo_rep(conn), novo_rep(conn)
+            tel = "5531987651234"
+            lista(conn, novo_gerente(conn, rep, "Lucas"), {"nome": "Rita Da Lista", "telefone": tel})
+            lista(conn, novo_gerente(conn, outro), {"nome": "Sara De Outro", "telefone": telefone()})
+        self.como_rep(rep)
+        html = self.c.get("/listas").get_data(as_text=True)
+        self.assertIn("Rita Da Lista", html)
+        self.assertIn("-1234", html)
+        self.assertNotIn("98765-1234", html)  # número inteiro fica com a central
+        self.assertNotIn("Sara De Outro", html)
+        self.assertEqual(self.c.get("/api/listas/sinal").status_code, 200)
+        self.como_admin()
+        html = self.c.get("/listas").get_data(as_text=True)
+        self.assertIn("Sara De Outro", html)
+        self.assertIn("98765-1234", html)
+
+
 class Duplicidade(Base):
     def test_mesmo_gerente_reenviando_nao_gera_aviso(self):
         with db.conectar() as conn:
@@ -162,13 +197,27 @@ class Permissoes(Base):
         self.assertEqual(self.c.post("/api/ciclo", json={}).status_code, 401)
 
     def test_representante_ve_so_a_carteira_dele(self):
+        with db.conectar() as conn:  # o cliente da Ana se interessa e chega para ela
+            tel = conn.execute("SELECT telefone FROM clientes WHERE id = ?", (self.cli_a,)).fetchone()["telefone"]
+            sdr.registrar_resposta(conn, tel, "tenho interesse")
         self.como_rep(self.rep_a)
         self.assertEqual(self.c.get(f"/cliente/{self.cli_a}").status_code, 200)
         self.assertEqual(self.c.get(f"/cliente/{self.cli_b}").status_code, 404)
-        fila = self.c.get("/fila").get_data(as_text=True)
-        self.assertIn("Cliente Da Ana", fila)
-        self.assertNotIn("Cliente Do Beto", fila)
-        self.assertNotIn("Cliente Do Beto", self.c.get("/negociacoes").get_data(as_text=True))
+        self.assertIn("Cliente Da Ana", self.c.get("/atender").get_data(as_text=True))
+        for url in ("/fila", "/negociacoes", "/atender", "/clientes"):
+            self.assertNotIn("Cliente Do Beto", self.c.get(url).get_data(as_text=True), url)
+
+    def test_cliente_ainda_em_follow_up_fica_com_a_central(self):
+        """Representante da central não vê nome nem ficha de quem ainda não se interessou: só números."""
+        with db.conectar() as conn:
+            lista(conn, self.ger_a, {"nome": "Frio Da Ana", "telefone": telefone()})
+            frio = conn.execute("SELECT id FROM clientes WHERE nome = 'Frio Da Ana'").fetchone()["id"]
+        self.como_rep(self.rep_a)
+        self.assertEqual(self.c.get(f"/cliente/{frio}").status_code, 404)
+        self.assertEqual(self.c.post(f"/api/cliente/{frio}/atualizar", json={"etapa": "vendido"}).status_code, 404)
+        for url in ("/fila", "/negociacoes", "/clientes", "/"):
+            self.assertNotIn("Frio Da Ana", self.c.get(url).get_data(as_text=True), url)
+        self.assertIn("Clientes enviados", self.c.get("/fila").get_data(as_text=True))
 
     def test_representante_nao_entra_nas_telas_da_operacao(self):
         self.como_rep(self.rep_a)
@@ -205,6 +254,67 @@ class Permissoes(Base):
         r = p.get(f"/g/{token}")
         self.assertEqual(r.status_code, 200)
         self.assertNotIn("TEXTO-SECRETO-DA-CONVERSA", r.get_data(as_text=True))
+
+
+class Atendimento(Base):
+    def chega_interessado(self):
+        with db.conectar() as conn:
+            rep = novo_rep(conn)
+            tel = telefone()
+            lista(conn, novo_gerente(conn, rep), {"nome": "Lucia Interessada", "telefone": tel})
+            sdr.registrar_resposta(conn, tel, "quero saber do consórcio de imóvel")
+            return rep, cliente_por_tel(conn, tel)["id"]
+
+    def test_resultado_em_um_toque(self):
+        rep, cid = self.chega_interessado()
+        self.como_rep(rep)
+        self.c.post(f"/api/cliente/{cid}/atendimento", json={"acao": "contato"})
+        with db.conectar() as conn:
+            c = conn.execute("SELECT * FROM clientes WHERE id = ?", (cid,)).fetchone()
+            self.assertIsNotNone(c["atendido_em"])
+        self.c.post(f"/api/cliente/{cid}/atendimento", json={"acao": "simulacao"})
+        self.c.post(f"/api/cliente/{cid}/atendimento", json={"acao": "perdeu", "motivo": "Achou a parcela alta"})
+        with db.conectar() as conn:
+            c = conn.execute("SELECT * FROM clientes WHERE id = ?", (cid,)).fetchone()
+            self.assertEqual((c["etapa"], c["motivo_perda"]), ("perdido", "Achou a parcela alta"))
+            self.assertIsNone(c["proximo_contato"])
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM interacoes WHERE cliente_id = ? AND canal = 'nota'",
+                                          (cid,)).fetchone()[0], 3)
+        self.assertEqual(self.c.post(f"/api/cliente/{cid}/atendimento", json={"acao": "apagar"}).status_code, 400)
+
+    def test_sem_contato_no_prazo_volta_para_a_central_e_pode_ser_repassado(self):
+        rep, cid = self.chega_interessado()
+        with db.conectar() as conn:
+            conn.execute("UPDATE clientes SET repasse_em = '2020-01-01 09:00:00' WHERE id = ?", (cid,))
+            self.assertEqual(db.devolver_atrasados(conn, db.config(conn)), 1)
+            self.assertIn(cid, [x["id"] for x in sdr.fila(conn)])  # voltou para a fila da central
+        self.como_rep(rep)
+        self.assertEqual(self.c.get(f"/cliente/{cid}").status_code, 404)
+        self.assertNotIn("Lucia Interessada", self.c.get("/atender").get_data(as_text=True))
+        self.assertEqual(self.c.post(f"/api/cliente/{cid}/repassar", json={}).status_code, 403)  # só o consultor
+        self.como_admin()
+        self.c.post(f"/api/cliente/{cid}/repassar", json={})
+        self.como_rep(rep)
+        self.assertEqual(self.c.get(f"/cliente/{cid}").status_code, 200)
+
+    def test_quem_foi_atendido_nao_e_devolvido(self):
+        rep, cid = self.chega_interessado()
+        with db.conectar() as conn:
+            conn.execute("UPDATE clientes SET repasse_em = '2020-01-01 09:00:00', atendido_em = '2020-01-01 09:30:00' "
+                         "WHERE id = ?", (cid,))
+            db.devolver_atrasados(conn, db.config(conn))
+            self.assertIsNone(conn.execute("SELECT devolvido_em FROM clientes WHERE id = ?", (cid,)).fetchone()[0])
+
+    def test_resumo_da_ia_aparece_marcado_como_ia(self):
+        import json
+        rep, cid = self.chega_interessado()
+        with db.conectar() as conn:
+            conn.execute("UPDATE clientes SET resumo_ia = ? WHERE id = ?", (json.dumps(
+                {"resumo": "Quer imóvel.", "quer": "imóvel de R$ 300 mil", "proximo_passo": "Mandar simulação"}), cid))
+        self.como_rep(rep)
+        html = self.c.get("/atender").get_data(as_text=True)
+        self.assertIn("Resumo preparado pela IA", html)
+        self.assertIn("Mandar simulação", html)
 
 
 class RepasseEFollowUp(Base):

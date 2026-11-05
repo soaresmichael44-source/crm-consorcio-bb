@@ -17,6 +17,18 @@ MODELO_LEITURA = os.getenv("GEMINI_MODELO_LEITURA") or "gemini-flash-lite-latest
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
 
 
+def _cadeia(var, padrao):
+    return [m.strip() for m in (os.getenv(var) or padrao).split(",") if m.strip()]
+
+
+# Cadeias de modelos: quando o Google sobrecarrega um modelo (503 "high demand", às vezes por vários minutos),
+# o próximo assume em segundos. Teste de 05/11/2026: flash-latest e lite-latest caíram juntos, enquanto
+# 3.5-flash-lite, 3.1-flash-lite e 3.5/3.6-flash respondiam em 2–4 s e contavam a lista certa.
+MODELOS_RAPIDOS = _cadeia("GEMINI_MODELOS_RAPIDOS", f"{MODELO_LEITURA},gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash")
+MODELOS_MINUCIOSOS = _cadeia("GEMINI_MODELOS_MINUCIOSOS", f"gemini-3.6-flash,gemini-3.5-flash,{MODELO},gemini-3.5-flash-lite")
+TIMEOUT_MODELO = 45  # segundos por tentativa: modelo travado não segura a lista do gerente
+
+
 # Letras de outros alfabetos (cirílico, grego, árabe, hebraico, chinês, japonês, coreano...): o modelo às vezes
 # solta uma palavra assim no meio do português, e uma mensagem dessas não pode chegar ao cliente.
 _OUTRO_ALFABETO = re.compile(r"[\u0370-\u06ff\u0900-\u0dff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
@@ -43,16 +55,17 @@ def _chamar(partes, max_tokens=8192, temperatura=0.2, modelos=None):
     # cai para o modelo reserva antes de desistir.
     for tentativa, modelo in enumerate(modelos or [MODELO, MODELO, MODELO_RESERVA, MODELO_RESERVA]):
         if tentativa:
-            time.sleep(2 * tentativa)
+            time.sleep(1)  # a cadeia já troca de modelo: espera curta
         try:
-            r = requests.post(URL.format(m=modelo), params={"key": API_KEY}, json=corpo, timeout=120)
+            r = requests.post(URL.format(m=modelo), params={"key": API_KEY}, json=corpo, timeout=TIMEOUT_MODELO)
         except requests.RequestException as e:
             erro = str(e)
             continue
         if r.status_code == 200:
             break
         erro = f"Gemini respondeu {r.status_code}: {r.text[:200]}"
-        if r.status_code not in (429, 500, 502, 503, 504):
+        # 404 = modelo aposentado/indisponível nesta conta: só passa para o próximo da cadeia.
+        if r.status_code not in (404, 429, 500, 502, 503, 504):
             raise ErroIA(erro)
     else:
         raise ErroIA(erro)
@@ -92,8 +105,18 @@ def ler_listas(imagens):
         partes.append({"inline_data": {"mime_type": mime, "data": base64.b64encode(dados).decode()}})
     # Leitura de lista usa o modelo leve primeiro: lê uma página em ~5 s, enquanto o flash
     # com raciocínio passava de 50 s e vivia em "alta demanda" (teste de 29/10/2026).
-    res = _chamar(partes, max_tokens=16384, temperatura=0,
-                  modelos=[MODELO_LEITURA, MODELO_LEITURA, MODELO, MODELO_LEITURA])
+    res = _chamar(partes, max_tokens=16384, temperatura=0, modelos=MODELOS_RAPIDOS + MODELOS_RAPIDOS[:1])
+    return res.get("clientes", []), res.get("observacao_leitura", "")
+
+
+def ler_listas_minucioso(imagens):
+    """Segunda leitura, com calma: modelo maior primeiro, linha por linha. Roda em segundo plano depois da
+    leitura rápida (que já colocou a lista na tela) e acha quem ela deixou passar."""
+    partes = [{"text": PROMPT_LEITURA + "\n\nLEIA COM MUITA ATENÇÃO: percorra a imagem linha por linha, do topo ao "
+                       "fim, conte as linhas da lista e confira se o número de clientes devolvidos bate com elas."}]
+    for dados, mime in imagens:
+        partes.append({"inline_data": {"mime_type": mime, "data": base64.b64encode(dados).decode()}})
+    res = _chamar(partes, max_tokens=32768, temperatura=0, modelos=MODELOS_MINUCIOSOS + MODELOS_RAPIDOS[1:])
     return res.get("clientes", []), res.get("observacao_leitura", "")
 
 
@@ -158,7 +181,7 @@ def gerar_mensagem(cliente, historico, tentativa, cfg, canal="whatsapp"):
     for _ in range(3):
         # Mensagem curta não precisa do modelo maior, que às vezes fica minutos sobrecarregado: o rápido vem primeiro.
         res = _chamar([{"text": prompt}], max_tokens=4096, temperatura=0.7,
-                      modelos=[MODELO_LEITURA, MODELO_LEITURA, MODELO, MODELO_RESERVA])
+                      modelos=MODELOS_RAPIDOS)
         texto = (res.get("texto") or "").strip()
         if texto and not _OUTRO_ALFABETO.search(texto + (res.get("assunto") or "")):
             break
@@ -167,3 +190,38 @@ def gerar_mensagem(cliente, historico, tentativa, cfg, canal="whatsapp"):
     if optout not in texto:
         texto = f"{texto}\n\n{optout}"
     return (res.get("assunto") or "").strip(), texto
+
+
+PROMPT_RESUMO = """Você prepara um representante autorizado do Consórcio BB para atender um cliente que acabou de
+demonstrar interesse no follow-up da operação central. Use SOMENTE os dados e o histórico abaixo.
+
+DADOS DO CLIENTE
+{dados}
+
+HISTÓRICO (mais recente por último)
+{historico}
+
+REGRAS:
+- Não invente nada: se o histórico não diz o que o cliente quer, diga que não ficou claro.
+- Nunca afirme contemplação, aprovação de crédito, taxa, prazo ou condição que não esteja nos dados.
+- Português do Brasil, frases curtas, direto ao ponto.
+
+Devolva JSON:
+{{"resumo": "1 a 2 frases: o que aconteceu na conversa",
+  "quer": "o que o cliente parece querer (bem, valor, prazo) ou 'não ficou claro'",
+  "proximo_passo": "uma ação concreta para o representante fazer agora, sem prometer condições"}}"""
+
+
+def resumir_para_atendimento(cliente, historico):
+    """Resumo da conversa + próximo passo sugerido, para o representante chegar ao cliente com contexto."""
+    dados = {k: cliente[k] for k in ("nome", "cidade", "produto", "valor_credito", "situacao_bb", "observacoes") if cliente[k]}
+    hist = "\n".join(f"[{h['criado_em']}] {'cliente' if h['direcao'] == 'entrada' else 'nós'}: {h['texto'][:500]}"
+                     for h in historico) or "(sem mensagens registradas)"
+    prompt = PROMPT_RESUMO.format(dados=json.dumps(dados, ensure_ascii=False, indent=1), historico=hist)
+    for _ in range(3):
+        res = _chamar([{"text": prompt}], max_tokens=2048, temperatura=0.3,
+                      modelos=MODELOS_RAPIDOS)
+        campos = {k: (res.get(k) or "").strip() for k in ("resumo", "quer", "proximo_passo")}
+        if campos["resumo"] and not _OUTRO_ALFABETO.search(" ".join(campos.values())):
+            return campos
+    raise ErroIA("A IA não conseguiu resumir o atendimento; tente de novo.")

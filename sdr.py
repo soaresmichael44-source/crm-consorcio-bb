@@ -1,4 +1,6 @@
 """Cadência de follow-up: decide quem recebe mensagem, redige e envia."""
+import contextvars
+import json
 import os
 import threading
 import unicodedata
@@ -71,7 +73,7 @@ def fila(conn, limite=200, lote_id=None, rep_id=None):
         "r.id AS rep_id, r.nome AS rep_nome FROM clientes c LEFT JOIN lotes l ON l.id = c.lote_id "
         "LEFT JOIN gerentes g ON g.id = l.gerente_id LEFT JOIN representantes r ON r.id = g.representante_id "
         "WHERE c.pausado = 0 AND c.etapa NOT IN ('documentacao', 'vendido', 'perdido', 'optout') "
-        f"AND NOT (c.etapa IN ('respondeu', 'negociando') AND c.lote_id IN ({db.SQL_LOTES_COM_REP})) "
+        f"AND NOT (c.etapa IN ('respondeu', 'negociando') AND c.lote_id IN ({db.SQL_LOTES_COM_REP}) AND c.devolvido_em IS NULL) "
         "AND c.proximo_contato IS NOT NULL AND c.proximo_contato <= ? " + filtro +
         "ORDER BY (c.etapa = 'novo') DESC, c.proximo_contato LIMIT ?",
         (db.agora(), *args, limite),
@@ -139,6 +141,7 @@ def ciclo(conn, cfg, so_rascunhos=False, lote_id=None):
     """Uma rodada da cadência (chamada pelo n8n, pelo botão ou na chegada de uma lista).
     Respeita horário, teto diário e a trava geral `envio_automatico`."""
     resumo = {"rascunhos": 0, "enviados": 0, "emails": 0, "erros": [], "fora_do_horario": False}
+    resumo["devolvidos"] = db.devolver_atrasados(conn, cfg)  # interessado que o representante não atendeu volta para cá
     if cfg.get("envio_automatico") != "1":
         so_rascunhos = True  # trava geral desligada: só redige, nunca envia
     resumo["envio_automatico"] = not so_rascunhos
@@ -229,3 +232,38 @@ def processar_lote_em_segundo_plano(lote_id):
         except Exception as e:  # roda solto: falha aqui não pode derrubar o upload
             print(f"[lote {lote_id}] falha ao preparar primeiro contato: {e}", flush=True)
     threading.Thread(target=_rodar, daemon=True).start()
+
+
+_resumindo = set()  # clientes com resumo sendo preparado agora (evita duas chamadas para o mesmo)
+
+
+def resumir(conn, cliente):
+    """Gera e grava o resumo de atendimento (marcado como feito pela IA)."""
+    hist = conn.execute("SELECT * FROM interacoes WHERE cliente_id = ? AND canal IN ('whatsapp', 'email', 'nota') "
+                        "ORDER BY id DESC LIMIT 12", (cliente["id"],)).fetchall()
+    res = ia.resumir_para_atendimento(cliente, list(reversed(hist)))
+    res["gerado_em"] = db.agora()
+    conn.execute("UPDATE clientes SET resumo_ia = ? WHERE id = ?", (json.dumps(res, ensure_ascii=False), cliente["id"]))
+    return res
+
+
+def resumir_em_segundo_plano(ids):
+    """Prepara o resumo dos interessados que ainda não têm, sem segurar a página."""
+    ids = [i for i in ids if i not in _resumindo]
+    if not ids:
+        return
+    _resumindo.update(ids)
+    ctx = contextvars.copy_context()
+
+    def _rodar():
+        for cid in ids:
+            try:
+                with db.conectar() as conn:
+                    c = conn.execute("SELECT * FROM clientes WHERE id = ?", (cid,)).fetchone()
+                    if c and not c["resumo_ia"]:
+                        resumir(conn, c)
+            except Exception as e:
+                print(f"[resumo {cid}] {e}", flush=True)
+            finally:
+                _resumindo.discard(cid)
+    threading.Thread(target=lambda: ctx.run(_rodar), daemon=True).start()

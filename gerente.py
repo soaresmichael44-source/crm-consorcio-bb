@@ -488,8 +488,32 @@ def _processar_leitura(leitura_id):
         }
         conn.execute("UPDATE leituras SET status = 'ok', lote_id = ?, resultado = ? WHERE id = ?",
                      (lote_id, json.dumps(resultado, ensure_ascii=False), leitura_id))
+    _conferir_em_segundo_plano(lote_id, lt["arquivos"], lidos)
     if not _eh_demo():
         sdr.processar_lote_em_segundo_plano(lote_id)
+
+
+def _conferir_em_segundo_plano(lote_id, arquivos, rapida):
+    """2ª leitura minuciosa: a lista já apareceu na tela (leitura rápida); aqui o modelo maior relê com calma
+    e completa quem faltou. Se falhar, a lista fica como estava e o CRM mostra que não foi conferida."""
+    ctx = contextvars.copy_context()
+
+    def _rodar():
+        # A IA do Google às vezes fica minutos sobrecarregada: tenta de novo depois de 1 e de 2 minutos.
+        for espera in (0, 60, 120):
+            time.sleep(espera)
+            try:
+                imagens = [(armazenamento.ler("uploads", caminho), mime) for caminho, mime in json.loads(arquivos)]
+                minuciosa, _ = ia.ler_listas_minucioso(imagens)
+                with db.conectar() as conn:
+                    db.completar_lote(conn, lote_id, rapida, minuciosa)
+                return
+            except Exception as e:
+                print(f"[conferência lote {lote_id}] falha: {e}", flush=True)
+        with db.conectar() as conn:
+            conn.execute("UPDATE lotes SET conferencia = ? WHERE id = ?",
+                         (json.dumps({"erro": "Não deu para conferir agora", "conferido_em": db.agora()}), lote_id))
+    threading.Thread(target=lambda: ctx.run(_rodar), daemon=True).start()
 
 
 @app.get("/g/<token>/leitura/<int:leitura_id>")

@@ -108,6 +108,7 @@ nav.baixo{display:none}
   {% set p = request.path %}
   <a href="/" class="{{ 'ativo' if p == '/' }}">Painel</a>
   {% if rep_logado %}<a href="/atender" class="{{ 'ativo' if p.startswith('/atender') }}">Para atender{% if repasses_novos %}<span class="badge" style="background:var(--amarelo);color:var(--azul)">{{ repasses_novos }}</span>{% endif %}</a>{% endif %}
+  <a href="/listas" class="{{ 'ativo' if p.startswith('/listas') }}">Listas recebidas</a>
   <a href="/negociacoes" class="{{ 'ativo' if p.startswith('/negociacoes') }}">Negociações</a>
   <a href="/fila" class="{{ 'ativo' if p.startswith('/fila') }}">Fila de follow-up</a>
   {% if not rep_logado %}<a href="/clientes" class="{{ 'ativo' if p.startswith('/cliente') }}">Clientes</a>
@@ -125,9 +126,9 @@ nav.baixo{display:none}
 <nav class="baixo">
   <a href="/" class="{{ 'ativo' if p == '/' }}"><i>⌂</i>Início</a>
   <a href="/atender" class="{{ 'ativo' if p.startswith('/atender') or p.startswith('/cliente') }}"><i>☎</i>Atender{% if repasses_novos %}<span class="badge">{{ repasses_novos }}</span>{% endif %}</a>
-  <a href="/negociacoes" class="{{ 'ativo' if p.startswith('/negociacoes') }}"><i>▦</i>Negociações</a>
+  <a href="/negociacoes" class="{{ 'ativo' if p.startswith('/negociacoes') }}"><i>▦</i>Negociar</a>
   <a href="/meus-gerentes" class="{{ 'ativo' if p.startswith('/meus-gerentes') }}"><i>🏦</i>Gerentes</a>
-  <a href="/fila" class="{{ 'ativo' if p.startswith('/fila') }}"><i>↻</i>Follow-up</a>
+  <a href="/listas" class="{{ 'ativo' if p.startswith('/listas') }}"><i>📷</i>Listas</a>
 </nav>{% endif %}
 <script>
 async function api(url, dados){

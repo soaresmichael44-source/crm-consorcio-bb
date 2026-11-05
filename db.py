@@ -9,7 +9,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -165,6 +165,14 @@ MIGRACOES = [
     # 1 = o próprio representante faz o follow-up dos clientes dele (mensagens no nome dele, ele trabalha a fila);
     # 0 = a operação central faz, no nome do consultor.
     ("representantes", "faz_followup", "INTEGER NOT NULL DEFAULT 0"),
+    # Atendimento do interessado pelo representante: primeiro contato dele, devolução à central por falta de
+    # atendimento no prazo, motivo quando perde e o resumo que a IA prepara para ele chegar com contexto.
+    ("clientes", "atendido_em", "TEXT"),
+    ("clientes", "devolvido_em", "TEXT"),
+    ("clientes", "motivo_perda", "TEXT"),
+    ("clientes", "resumo_ia", "TEXT"),
+    # Conferência minuciosa da lista (2ª leitura, modelo maior, em segundo plano): JSON com o que achou.
+    ("lotes", "conferencia", "TEXT"),
 ]
 
 ETAPAS_REPASSE = ("respondeu", "negociando", "documentacao")
@@ -178,6 +186,61 @@ def repassar_se_interessado(conn, cliente_id):
     conn.execute(
         "UPDATE clientes SET repasse_em = ?, repasse_visto = 0 WHERE id = ? AND repasse_em IS NULL "
         f"AND etapa IN {ETAPAS_REPASSE} AND lote_id IN ({SQL_LOTES_COM_REP})", (agora(), cliente_id))
+
+
+# Interessado que está com o representante agora (repassado e não devolvido à central).
+SQL_COM_REP_AGORA = "c.repasse_em IS NOT NULL AND c.devolvido_em IS NULL"
+
+MOTIVOS_PERDA = ["Sem dinheiro agora", "Comprou em outro lugar", "Não atende / sumiu", "Desistiu do bem",
+                 "Achou a parcela alta", "Prefere financiamento", "Outro"]
+
+# Resultado em um toque, do representante: ação -> (etapa nova ou None, texto do histórico)
+ACOES_ATENDIMENTO = {
+    "contato": (None, "fez o primeiro contato com o cliente"),
+    "simulacao": ("negociando", "enviou a simulação"),
+    "documentacao": ("documentacao", "recebeu a documentação"),
+    "fechou": ("vendido", "fechou a venda 🏆"),
+    "perdeu": ("perdido", "marcou como perdido"),
+}
+
+
+def registrar_atendimento(conn, cliente, autor, acao, motivo=None):
+    """Representante registra o que fez com o interessado. A primeira ação marca o atendimento (prazo cumprido)."""
+    etapa, texto = ACOES_ATENDIMENTO[acao]
+    if acao == "contato" and cliente["atendido_em"]:
+        texto = "chamou o cliente de novo"
+    sets = {"atualizado_em": agora(), "repasse_visto": 1}
+    if not cliente["atendido_em"]:
+        sets["atendido_em"] = agora()
+    if etapa and etapa != cliente["etapa"]:
+        sets["etapa"] = etapa
+        if etapa in ETAPAS_FINAIS:
+            sets["proximo_contato"] = None
+    if acao == "perdeu":
+        sets["motivo_perda"] = motivo if motivo in MOTIVOS_PERDA else "Outro"
+        texto += f" ({sets['motivo_perda']})"
+    conn.execute(f"UPDATE clientes SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?", (*sets.values(), cliente["id"]))
+    registrar(conn, cliente["id"], "nota", "interna", f"{autor} {texto}.")
+
+
+def devolver_atrasados(conn, cfg):
+    """Interessado que o representante não atendeu no prazo volta para a central (fila de hoje). Devolve quantos."""
+    limite = (datetime.now() - timedelta(hours=int(cfg.get("prazo_devolucao_horas") or 24))).strftime("%Y-%m-%d %H:%M:%S")
+    ids = [r["id"] for r in conn.execute(
+        "SELECT c.id FROM clientes c WHERE " + SQL_COM_REP_AGORA + " AND c.atendido_em IS NULL AND c.repasse_em < ? "
+        "AND c.etapa NOT IN ('vendido', 'perdido', 'optout')", (limite,))]
+    for cid in ids:
+        conn.execute("UPDATE clientes SET devolvido_em = ?, proximo_contato = ?, pausado = 0 WHERE id = ?", (agora(), agora(), cid))
+        registrar(conn, cid, "sistema", "interna",
+                  f"Representante não fez contato em {cfg.get('prazo_devolucao_horas') or 24} h: cliente voltou para a central.")
+    return len(ids)
+
+
+def repassar_de_novo(conn, cliente_id):
+    """Consultor manda de volta ao representante um cliente que tinha sido devolvido à central."""
+    conn.execute("UPDATE clientes SET devolvido_em = NULL, atendido_em = NULL, repasse_em = ?, repasse_visto = 0 "
+                 "WHERE id = ?", (agora(), cliente_id))
+    registrar(conn, cliente_id, "sistema", "interna", "Repassado de novo ao representante pelo consultor.")
 
 
 def filtro_rep(rep_id, coluna_lote="c.lote_id"):
@@ -242,6 +305,10 @@ CONFIG_PADRAO = {
     # `intervalo_final` dias até o cliente comprar, sair ou pedir para parar.
     "cadencia_dias": "0,1,3,7,14,21,30",
     "intervalo_final": "15",
+    # Interessado repassado ao representante: prazo para o primeiro contato (depois disso conta como atrasado)
+    # e prazo para devolver à central se ele não atender.
+    "prazo_atendimento_horas": "2",
+    "prazo_devolucao_horas": "24",
     "hora_inicio": "9",
     "hora_fim": "19",
 }
@@ -547,6 +614,38 @@ def importar_lote(conn, clientes, descricao="", qtd_imagens=0, gerente_id=None):
         atualizados += not novo
     conn.execute("UPDATE lotes SET qtd_clientes = ? WHERE id = ?", (novos + atualizados, lote_id))
     return lote_id, novos, atualizados
+
+
+def chaves_pessoa(c):
+    """Para comparar duas leituras da mesma lista: o telefone e o nome (sem acento/maiúscula). A mesma pessoa
+    pode vir com telefone numa leitura e sem na outra, então qualquer uma das chaves que bater já identifica."""
+    import unicodedata
+    nome = unicodedata.normalize("NFKD", (c.get("nome") or "").lower()).encode("ascii", "ignore").decode()
+    chaves = {"n" + " ".join(nome.split())} if nome.strip() else set()
+    tel = normalizar_telefone(c.get("telefone"))
+    return chaves | ({"t" + tel} if tel else set())
+
+
+def completar_lote(conn, lote_id, rapida, minuciosa):
+    """Junta a leitura minuciosa à rápida: quem a rápida deixou passar entra no mesmo lote.
+    Devolve o resumo da conferência (gravado em lotes.conferencia)."""
+    ja = set().union(*(chaves_pessoa(c) for c in rapida)) if rapida else set()
+    faltavam = []
+    for c in minuciosa:
+        if (c.get("nome") or "").strip() and not (chaves_pessoa(c) & ja):
+            faltavam.append(c)
+            ja |= chaves_pessoa(c)
+    for c in faltavam:
+        cid, novo = inserir_cliente(conn, c, lote_id)
+        registrar(conn, cid, "sistema", "interna", "Encontrado na conferência minuciosa da lista (2ª leitura).")
+    if faltavam:
+        conn.execute("UPDATE lotes SET qtd_clientes = qtd_clientes + ? WHERE id = ?", (len(faltavam), lote_id))
+    duvidosos = sorted({(c.get("nome") or "").strip().title() for c in list(rapida) + list(minuciosa)
+                        if (c.get("confianca") or "").lower() == "baixa" and (c.get("nome") or "").strip()})
+    res = {"conferido_em": agora(), "rapida": len(rapida), "minuciosa": len(minuciosa),
+           "adicionados": [(c.get("nome") or "").strip().title() for c in faltavam], "duvidosos": duvidosos}
+    conn.execute("UPDATE lotes SET conferencia = ? WHERE id = ?", (json.dumps(res, ensure_ascii=False), lote_id))
+    return res
 
 
 PASTA_DOCS = BASE / "documentos"

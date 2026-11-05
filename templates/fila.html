@@ -11,6 +11,7 @@
 .abas a b{background:#eef1f8;border-radius:10px;padding:1px 8px;font-size:12px}
 .abas a.on{background:var(--azul);border-color:var(--azul);color:#fff}
 .abas a.on b{background:var(--amarelo);color:var(--azul)}
+.num{text-align:right;white-space:nowrap}
 @media (max-width:860px){.item{grid-template-columns:1fr}}
 </style>
 {% endblock %}
@@ -20,7 +21,7 @@
   {% if rep_logado and not so_acompanha %}
   <p class="sub">{{ itens|length }} cliente(s) com contato vencido hoje. As mensagens já estão escritas no seu nome, seguindo o gatilho de cada etapa: confira, abra no WhatsApp e envie. Quem se interessar vai para <a href="/atender">Para atender</a>.</p></div>
   {% elif rep_logado %}
-  <p class="sub">{{ itens|length }} cliente(s) das suas agências em follow-up pela operação central. Aqui é só acompanhamento: quando um deles se interessar, ele vai para <a href="/atender">Para atender</a>.</p></div>
+  <p class="sub">{{ na_fila }} cliente(s) das suas agências em follow-up pela operação central hoje. Aqui é só acompanhamento: quando um deles se interessar, ele vai para <a href="/atender">Para atender</a>.</p></div>
   {% else %}
   <p class="sub">{{ total }} cliente(s) com contato vencido · {{ envios_hoje }}/{{ cfg.max_envios_dia }} mensagens hoje ·
     modo WhatsApp: <strong>{{ 'automático (robô)' if cfg.modo_whatsapp == 'ponte' else 'manual (você clica e envia)' }}</strong></p></div>
@@ -35,18 +36,16 @@
 {% if so_acompanha %}
 <div class="card tabela-scroll">
 <table>
-  <thead><tr><th>Cliente</th><th>Agência / gerente</th><th>Produto</th><th>Etapa</th><th>Contato nº</th><th>Gatilho desta etapa</th><th>Último contato</th></tr></thead>
+  <thead><tr><th>Gerente / agência</th><th class="num">Clientes enviados</th><th class="num">Aguardando 1º contato</th><th class="num">Em contato</th><th class="num">Interessados para você</th><th class="num">Fechados</th></tr></thead>
   <tbody>
-  {% for c in itens %}
-    <tr><td><strong>{{ c.nome }}</strong></td>
-      <td>{% if c.agencia %}ag. {{ c.agencia }}{% else %}—{% endif %}<br><small class="muted">{{ c.gerente_nome or '' }}</small></td>
-      <td>{{ c.produto or '—' }}</td><td><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span></td>
-      <td>{{ c.tentativas + 1 }}</td>
-      <td style="font-size:12px;max-width:260px">🎯 {{ GATILHOS[[c.tentativas, GATILHOS|length - 1]|min] }}{% if c.rascunho %}<br><small class="muted">✉ mensagem pronta</small>{% endif %}</td>
-      <td class="muted">{{ c.ultimo_contato|data }}</td></tr>
-  {% else %}<tr><td colspan="7" class="muted">Nenhum cliente das suas agências na fila agora.</td></tr>{% endfor %}
+  {% for x in resumo_gerentes %}
+    <tr><td><strong>{{ x.nome }}</strong><br><small class="muted">{{ 'ag. ' ~ x.agencia if x.agencia else '' }}</small></td>
+      <td class="num">{{ x.clientes or 0 }}</td><td class="num">{{ x.aguardando or 0 }}</td><td class="num">{{ x.em_contato or 0 }}</td>
+      <td class="num"><a href="/atender"><strong>{{ x.interessados or 0 }}</strong></a></td><td class="num">{{ x.fechados or 0 }}</td></tr>
+  {% else %}<tr><td colspan="6" class="muted">Você ainda não tem gerentes. Inclua em <a href="/meus-gerentes">Meus gerentes</a>.</td></tr>{% endfor %}
   </tbody>
 </table>
+<p class="muted" style="font-size:12px;margin:10px 0 0">🔒 Os nomes dos clientes em follow-up ficam com a operação central. Quem se interessar chega para você em <a href="/atender">Para atender</a>, com o resumo da conversa.</p>
 </div>
 {% else %}
 {% if not horario_ok and not rep_logado %}<div class="aviso">Fora do horário comercial configurado. Você ainda pode enviar manualmente, mas evite mensagens à noite e aos domingos.</div>{% endif %}

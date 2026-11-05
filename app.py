@@ -183,6 +183,15 @@ def _globais():
             "rep_logado": g.get("rep"), "repasses_novos": novos, "GATILHOS": ia.OBJETIVOS}
 
 
+@app.template_filter("tel_mascarado")
+def _tel_mascarado(t):
+    """(31) 9••••-8888: mostra que o telefone foi lido sem entregar o número de quem ainda está na central."""
+    d = db.telefone_formatado(t) if t else ""
+    if not d:
+        return "sem telefone"
+    return re.sub(r"\d(?=\d{0,3}-)", "•", d[:-4]) + d[-4:] if "-" in d else d[:-4] + "••••"
+
+
 @app.template_filter("compacto")
 def _compacto(v):
     """R$ 1,2 mi / R$ 350 mil: para os placares da Rede."""
@@ -211,8 +220,16 @@ def _data(v):
         return v
 
 
+def _so_repassados():
+    """Representante atendido pela central só vê, por nome, quem já chegou interessado para ele.
+    Os clientes ainda em follow-up ficam com a operação central (para ele, só números)."""
+    return bool(g.rep and not g.rep["faz_followup"])
+
+
 def _cliente_ou_404(conn, cid):
     filtro, args = db.filtro_rep(_rep_id(), "lote_id")
+    if _so_repassados():
+        filtro += " AND repasse_em IS NOT NULL AND devolvido_em IS NULL"
     c = conn.execute("SELECT * FROM clientes WHERE id = ?" + filtro, (cid, *args)).fetchone()
     if not c:
         abort(404)
@@ -228,6 +245,8 @@ def painel():
     fl, al = db.filtro_rep(rid, "l.id")
     with db.conectar() as conn:
         cfg = db.config(conn)
+        if not rid:
+            db.devolver_atrasados(conn, cfg)  # quem não foi atendido no prazo volta para a central
         por_etapa = {r["etapa"]: r["n"] for r in conn.execute(
             "SELECT c.etapa, COUNT(*) n FROM clientes c WHERE 1=1" + fc + " GROUP BY c.etapa", ac)}
         credito_fechado = conn.execute(
@@ -241,15 +260,18 @@ def painel():
                 "SELECT g.representante_id AS rid, COUNT(*) AS n FROM clientes c JOIN lotes l ON l.id = c.lote_id "
                 "JOIN gerentes g ON g.id = l.gerente_id WHERE c.repasse_em IS NOT NULL AND c.repasse_visto = 0 "
                 "AND c.etapa NOT IN ('vendido', 'perdido', 'optout') GROUP BY g.representante_id")}
+            atend = _placar_atendimento(conn, cfg)
             for r in conn.execute("SELECT * FROM representantes WHERE ativo = 1 ORDER BY nome"):
                 ger = [x for x in prod if x["representante_id"] == r["id"]]
                 reps.append({**dict(r), "agencias": len(ger), "prod": db.somar_producao(ger),
-                             "fila": sum(1 for i in fila if i["rep_id"] == r["id"]), "novos": novos.get(r["id"], 0)})
+                             "fila": sum(1 for i in fila if i["rep_id"] == r["id"]), "novos": novos.get(r["id"], 0),
+                             **atend.get(r["id"], {"atrasados": 0, "devolvidos": 0, "tempo_medio": None})})
         # Movimentação recente: quem mudou de etapa por último (o painel "respira" com a operação).
         recentes = conn.execute(
             "SELECT c.id, c.nome, c.etapa, c.valor_credito, c.atualizado_em, g.agencia, r.nome AS rep_nome FROM clientes c "
             "LEFT JOIN lotes l ON l.id = c.lote_id LEFT JOIN gerentes g ON g.id = l.gerente_id "
             "LEFT JOIN representantes r ON r.id = g.representante_id WHERE c.etapa <> 'novo'" + fc +
+            (" AND " + db.SQL_COM_REP_AGORA if _so_repassados() else "") +
             " ORDER BY c.atualizado_em DESC LIMIT 8", ac).fetchall()
         # Interessado que chegou para o representante e ninguém abriu há mais de 24 h: precisa de cobrança.
         parados = conn.execute(
@@ -273,11 +295,104 @@ def painel():
         duplicados = [] if rid else conn.execute(
             "SELECT id, nome, alerta_duplicidade FROM clientes WHERE alerta_duplicidade IS NOT NULL "
             "ORDER BY atualizado_em DESC LIMIT 20").fetchall()
-        return render_template("painel.html", duplicados=duplicados, por_etapa=por_etapa, total=sum(por_etapa.values()), fila_n=len(fila),
+        # Devolvidos à central por falta de atendimento, e por que as vendas se perdem.
+        devolvidos = [] if rid else conn.execute(
+            "SELECT c.id, c.nome, c.devolvido_em, c.valor_credito, r.nome AS rep_nome FROM clientes c "
+            "JOIN lotes l ON l.id = c.lote_id JOIN gerentes g ON g.id = l.gerente_id "
+            "JOIN representantes r ON r.id = g.representante_id WHERE c.devolvido_em IS NOT NULL "
+            "AND c.etapa NOT IN ('vendido', 'perdido', 'optout') ORDER BY c.devolvido_em DESC LIMIT 10").fetchall()
+        motivos = [] if rid else conn.execute(
+            "SELECT motivo_perda AS motivo, COUNT(*) AS n FROM clientes WHERE etapa = 'perdido' AND motivo_perda IS NOT NULL "
+            "GROUP BY motivo_perda ORDER BY n DESC").fetchall()
+        return render_template("painel.html", duplicados=duplicados, devolvidos=devolvidos, motivos=motivos, por_etapa=por_etapa, total=sum(por_etapa.values()), fila_n=len(fila),
                                credito_fechado=credito_fechado, reps=reps, recentes=recentes, parados=parados,
                                ha=_ha_quanto, cfg=cfg, lotes=lotes, recebidos=recebidos, gerentes=gerentes,
                                docs_clientes=docs_clientes, envios_hoje=sdr.envios_hoje(conn),
                                horario_ok=sdr.dentro_do_horario(cfg))
+
+
+def _placar_atendimento(conn, cfg):
+    """Por representante: interessados atrasados (sem contato além do prazo), devolvidos à central e
+    tempo médio entre o cliente chegar e o primeiro contato (últimos 30 dias)."""
+    agora = datetime.now()
+    prazo = (agora - timedelta(hours=int(cfg["prazo_atendimento_horas"] or 2))).strftime("%Y-%m-%d %H:%M:%S")
+    desde = (agora - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    placar = {}
+    for r in conn.execute(
+            "SELECT g.representante_id AS rid, c.repasse_em, c.atendido_em, c.devolvido_em, c.etapa FROM clientes c "
+            "JOIN lotes l ON l.id = c.lote_id JOIN gerentes g ON g.id = l.gerente_id "
+            "WHERE c.repasse_em IS NOT NULL AND g.representante_id IS NOT NULL"):
+        p = placar.setdefault(r["rid"], {"atrasados": 0, "devolvidos": 0, "_tempos": []})
+        if r["devolvido_em"]:
+            p["devolvidos"] += r["etapa"] not in db.ETAPAS_FINAIS
+        elif not r["atendido_em"] and r["repasse_em"] < prazo and r["etapa"] not in db.ETAPAS_FINAIS:
+            p["atrasados"] += 1
+        if r["atendido_em"] and r["repasse_em"] >= desde:
+            fmt = "%Y-%m-%d %H:%M:%S"
+            p["_tempos"].append((datetime.strptime(r["atendido_em"], fmt) - datetime.strptime(r["repasse_em"], fmt)).total_seconds())
+    for p in placar.values():
+        t = p.pop("_tempos")
+        p["tempo_medio"] = _duracao(sum(t) / len(t)) if t else None
+    return placar
+
+
+def _duracao(seg):
+    if seg < 3600:
+        return f"{max(int(seg // 60), 1)} min"
+    if seg < 86400:
+        return f"{seg / 3600:.1f} h".replace(".", ",")
+    return f"{seg / 86400:.1f} d".replace(".", ",")
+
+
+def _listas(conn, rid=None, dias=30):
+    """Listas que os gerentes mandaram (as do representante, ou todas), com os clientes de cada uma,
+    e as que a IA ainda está lendo agora."""
+    fr = " AND g.representante_id = ?" if rid else ""
+    ar = [rid] if rid else []
+    desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d %H:%M:%S")
+    lendo = conn.execute(
+        "SELECT lt.id, lt.criado_em, g.nome AS gerente, g.agencia, r.nome AS rep_nome FROM leituras lt "
+        "JOIN gerentes g ON g.id = lt.gerente_id LEFT JOIN representantes r ON r.id = g.representante_id "
+        "WHERE lt.status = 'lendo' AND lt.criado_em >= ?" + fr + " ORDER BY lt.id DESC",
+        [(datetime.now() - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S"), *ar]).fetchall()
+    lotes = [dict(l) for l in conn.execute(
+        "SELECT l.id, l.criado_em, l.qtd_clientes, l.conferencia, g.nome AS gerente, g.agencia, g.cidade, g.uf, "
+        "r.nome AS rep_nome FROM lotes l JOIN gerentes g ON g.id = l.gerente_id "
+        "LEFT JOIN representantes r ON r.id = g.representante_id "
+        "WHERE l.criado_em >= ? AND l.descricao NOT LIKE 'Documentos%'" + fr + " ORDER BY l.id DESC LIMIT 40",
+        [desde, *ar]).fetchall()]
+    for l in lotes:
+        l["conferencia"] = json.loads(l["conferencia"]) if l["conferencia"] else None
+        l["clientes"] = conn.execute(
+            "SELECT id, nome, telefone, produto, valor_credito, etapa, repasse_em, devolvido_em FROM clientes "
+            "WHERE lote_id = ? ORDER BY id", (l["id"],)).fetchall()
+        l["credito"] = sum(c["valor_credito"] or 0 for c in l["clientes"])
+    return lendo, lotes
+
+
+@app.route("/listas")
+def listas():
+    """Lista chegando ao vivo: o representante, na frente do gerente, mostra que a lista entrou."""
+    rid = _rep_id() or request.args.get("rep", type=int)
+    with db.conectar() as conn:
+        lendo, lotes = _listas(conn, rid)
+        reps = [] if g.rep else conn.execute("SELECT id, nome FROM representantes WHERE ativo = 1 ORDER BY nome").fetchall()
+    recente = (datetime.now() - timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
+    return render_template("listas.html", lendo=lendo, lotes=lotes, reps=reps, rep_id=rid, ha=_ha_quanto, recente=recente,
+                           abrir=request.args.get("abrir", type=int))
+
+
+@app.get("/api/listas/sinal")
+def listas_sinal():
+    """Muda sempre que chega lista, termina uma leitura ou uma conferência: a tela recarrega quando muda."""
+    rid = _rep_id() or request.args.get("rep", type=int)
+    fr, ar = (" AND g.representante_id = ?", [rid]) if rid else ("", [])
+    with db.conectar() as conn:
+        a = conn.execute("SELECT COUNT(*) AS n, MAX(lt.id) AS m FROM leituras lt JOIN gerentes g ON g.id = lt.gerente_id "
+                         "WHERE lt.status = 'lendo'" + fr, ar).fetchone()
+        b = conn.execute("SELECT MAX(l.id) AS m, COUNT(l.conferencia) AS c, SUM(l.qtd_clientes) AS q FROM lotes l "
+                         "JOIN gerentes g ON g.id = l.gerente_id WHERE 1=1" + fr, ar).fetchone()
+    return jsonify(sinal=f"{a['n']}-{a['m']}-{b['m']}-{b['c']}-{b['q']}", ultimo=b["m"])
 
 
 @app.route("/importar")
@@ -303,6 +418,8 @@ def clientes():
     if ger_id:
         sql += " AND g.id = ?"
         args.append(ger_id)
+    if _so_repassados():
+        sql += " AND " + db.SQL_COM_REP_AGORA
     if etapa:
         sql += " AND c.etapa = ?"
         args.append(etapa)
@@ -334,8 +451,11 @@ def cliente(cid):
         # Documentos enviados pelo próprio cliente ficam só com o gerente: aqui aparece apenas o status.
         docs = {p["id"]: [] if p["origem"] == "cliente" else
                 conn.execute("SELECT * FROM documentos WHERE pacote_id = ? ORDER BY id", (p["id"],)).fetchall() for p in pacotes}
-        return render_template("cliente.html", c=c, interacoes=inter, extras=extras, cfg=db.config(conn),
-                               pacotes=pacotes, docs=docs)
+        com_rep = bool(c["repasse_em"] and not c["devolvido_em"])
+        if com_rep and not c["resumo_ia"] and c["etapa"] not in db.ETAPAS_FINAIS:
+            sdr.resumir_em_segundo_plano([cid])
+        return render_template("cliente.html", c=_com_resumo(c), interacoes=inter, extras=extras, cfg=db.config(conn),
+                               pacotes=pacotes, docs=docs, com_rep=com_rep, MOTIVOS=db.MOTIVOS_PERDA)
 
 
 @app.route("/atender")
@@ -348,10 +468,28 @@ def atender():
             "SELECT c.*, g.nome AS gerente_nome, g.agencia AS agencia, g.cidade AS gerente_cidade, g.uf AS gerente_uf, "
             "r.nome AS rep_nome FROM clientes c JOIN lotes l ON l.id = c.lote_id JOIN gerentes g ON g.id = l.gerente_id "
             "JOIN representantes r ON r.id = g.representante_id WHERE c.repasse_em IS NOT NULL" + filtro +
-            " ORDER BY c.repasse_visto, (c.etapa IN ('vendido', 'perdido', 'optout')), c.repasse_em DESC LIMIT 500",
-            args).fetchall()
+            (" AND c.devolvido_em IS NULL" if g.rep else "") +
+            " ORDER BY (c.devolvido_em IS NOT NULL), (c.etapa IN ('vendido', 'perdido', 'optout')), "
+            "(c.atendido_em IS NOT NULL), c.repasse_em DESC LIMIT 500", args).fetchall()
         reps = [] if g.rep else conn.execute("SELECT id, nome FROM representantes ORDER BY nome").fetchall()
-    return render_template("atender.html", itens=itens, reps=reps, rep_id=rid)
+        cfg = db.config(conn)
+    prazo = (datetime.now() - timedelta(hours=int(cfg["prazo_atendimento_horas"] or 2))).strftime("%Y-%m-%d %H:%M:%S")
+    itens = [_com_resumo(c, atrasado=not c["atendido_em"] and not c["devolvido_em"] and c["repasse_em"] < prazo
+                         and c["etapa"] not in db.ETAPAS_FINAIS) for c in itens]
+    sdr.resumir_em_segundo_plano([c["id"] for c in itens if not c["resumo"] and not c["devolvido_em"]
+                                  and c["etapa"] not in db.ETAPAS_FINAIS][:20])
+    return render_template("atender.html", itens=itens, reps=reps, rep_id=rid, MOTIVOS=db.MOTIVOS_PERDA,
+                           ha=_ha_quanto, cfg=cfg)
+
+
+def _com_resumo(c, **extra):
+    """Linha do cliente como dict, com o resumo da IA já lido (ou None enquanto não ficou pronto)."""
+    d = dict(c, **extra)
+    try:
+        d["resumo"] = json.loads(c["resumo_ia"]) if c["resumo_ia"] else None
+    except ValueError:
+        d["resumo"] = None
+    return d
 
 
 COLUNAS_NEGOCIACAO = [("novo", "Na fila"), ("contatado", "Em contato"), ("respondeu", "Interessado"),
@@ -382,17 +520,21 @@ def negociacoes():
     with db.conectar() as conn:
         rows = conn.execute(
             "SELECT c.id, c.nome, c.etapa, c.produto, c.valor_credito, c.atualizado_em, c.repasse_em, c.repasse_visto, "
+            "c.devolvido_em, c.atendido_em, "
             "g.nome AS gerente_nome, g.agencia, r.nome AS rep_nome FROM clientes c LEFT JOIN lotes l ON l.id = c.lote_id "
             "LEFT JOIN gerentes g ON g.id = l.gerente_id LEFT JOIN representantes r ON r.id = g.representante_id "
             "WHERE 1=1" + filtro + " ORDER BY c.atualizado_em DESC", args).fetchall()
         reps = [] if g.rep else conn.execute("SELECT id, nome FROM representantes WHERE ativo = 1 ORDER BY nome").fetchall()
+    if _so_repassados():
+        rows = [r for r in rows if r["etapa"] in ("novo", "contatado") or (r["repasse_em"] and not r["devolvido_em"])]
     colunas = []
     for etapa, titulo in COLUNAS_NEGOCIACAO:
         itens = [dict(r, ha=_ha_quanto(r["atualizado_em"])) for r in rows if r["etapa"] == etapa]
         colunas.append({"etapa": etapa, "titulo": titulo, "n": len(itens),
                         "credito": sum(i["valor_credito"] or 0 for i in itens), "itens": itens[:60]})
     fora = sum(1 for r in rows if r["etapa"] in ("perdido", "optout"))
-    return render_template("negociacoes.html", colunas=colunas, fora=fora, reps=reps, rep_id=rid, total=len(rows))
+    return render_template("negociacoes.html", colunas=colunas, fora=fora, reps=reps, rep_id=rid, total=len(rows),
+                           so_numeros=("novo", "contatado") if _so_repassados() else ())
 
 
 @app.route("/fila")
@@ -411,8 +553,20 @@ def fila():
         aba = request.args.get("rep", "")
         if aba:
             itens = [i for i in itens if (i["rep_id"] or 0) == int(aba)]
+        resumo_gerentes = []
+        if _so_repassados():
+            resumo_gerentes = conn.execute(
+                "SELECT g.nome, g.agencia, COUNT(c.id) AS clientes, "
+                "SUM(CASE WHEN c.etapa = 'novo' THEN 1 ELSE 0 END) AS aguardando, "
+                "SUM(CASE WHEN c.etapa = 'contatado' THEN 1 ELSE 0 END) AS em_contato, "
+                "SUM(CASE WHEN c.repasse_em IS NOT NULL THEN 1 ELSE 0 END) AS interessados, "
+                "SUM(CASE WHEN c.etapa = 'vendido' THEN 1 ELSE 0 END) AS fechados "
+                "FROM gerentes g LEFT JOIN lotes l ON l.gerente_id = g.id LEFT JOIN clientes c ON c.lote_id = l.id "
+                "WHERE g.representante_id = ? GROUP BY g.id, g.nome, g.agencia ORDER BY g.nome", (g.rep["id"],)).fetchall()
+            itens = []  # nomes dos clientes frios ficam com a central
         return render_template("fila.html", itens=itens[:200], total=len(itens), cfg=cfg, envios_hoje=sdr.envios_hoje(conn),
-                               so_acompanha=bool(g.rep and not g.rep["faz_followup"]),
+                               so_acompanha=_so_repassados(), resumo_gerentes=resumo_gerentes,
+                               na_fila=len(sdr.fila(conn, limite=5000, rep_id=_rep_id())) if g.rep else 0,
                                horario_ok=sdr.dentro_do_horario(cfg), abas=abas if reps else [], aba=aba)
 
 
@@ -829,6 +983,38 @@ def api_atualizar(cid):
         conn.execute(f"UPDATE clientes SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?", (*sets.values(), cid))
         if "etapa" in sets:
             db.repassar_se_interessado(conn, cid)
+    return jsonify(ok=True)
+
+
+@app.post("/api/cliente/<int:cid>/atendimento")
+def api_atendimento(cid):
+    """Resultado em um toque: contato feito, simulação, documentação, fechou ou perdeu (com motivo)."""
+    d = request.get_json(force=True)
+    if d.get("acao") not in db.ACOES_ATENDIMENTO:
+        return jsonify(erro="Ação inválida."), 400
+    with db.conectar() as conn:
+        c = _cliente_ou_404(conn, cid)
+        autor = g.rep["nome"] if g.rep else db.config(conn)["nome_consultor"]
+        db.registrar_atendimento(conn, c, autor, d["acao"], d.get("motivo"))
+    return jsonify(ok=True, link=sdr.link_whatsapp(c["telefone"], "") if d.get("whatsapp") and c["telefone"] else None)
+
+
+@app.post("/api/cliente/<int:cid>/resumo")
+def api_resumo(cid):
+    with db.conectar() as conn:
+        c = _cliente_ou_404(conn, cid)
+        try:
+            return jsonify(sdr.resumir(conn, c))
+        except ia.ErroIA as e:
+            return jsonify(erro=str(e)), 502
+
+
+@app.post("/api/cliente/<int:cid>/repassar")
+@so_admin
+def api_repassar(cid):
+    with db.conectar() as conn:
+        _cliente_ou_404(conn, cid)
+        db.repassar_de_novo(conn, cid)
     return jsonify(ok=True)
 
 

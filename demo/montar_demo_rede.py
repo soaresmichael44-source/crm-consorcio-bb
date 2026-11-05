@@ -42,6 +42,20 @@ PRODUTOS = [("imóvel", (150_000, 500_000)), ("auto", (50_000, 150_000)), ("pesa
             ("moto", (15_000, 40_000))]
 
 
+# O que o cliente respondeu no WhatsApp, por produto (a IA resume isso para o representante).
+RESPOSTAS = {
+    "imóvel": ["Oi! Tenho interesse sim, quero sair do aluguel. Quanto ficaria uma carta de {v}?",
+               "Boa tarde. Estou pensando em comprar um apartamento ano que vem, como funciona o lance?"],
+    "auto": ["Tenho sim, quero trocar de carro. Dá pra usar meu carro atual no lance?",
+             "Oi, quero um carro em uns 12 meses. Qual a parcela de {v}?"],
+    "pesados": ["Bom dia. Preciso renovar a frota, um caminhão de {v}. Vocês fazem?",
+                "Tenho interesse, mas quero entender se consigo contemplar rápido."],
+    "moto": ["Oi! Quero uma moto pra trabalhar, qual a parcela mais baixa?",
+             "Tenho interesse sim, mas só posso pagar até 400 por mês."],
+}
+MOTIVOS = ["Achou a parcela alta", "Comprou em outro lugar", "Não atende / sumiu", "Prefere financiamento"]
+
+
 def ts(horas_atras):
     return (datetime.now() - timedelta(hours=horas_atras)).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -78,8 +92,23 @@ with db.conectar() as conn:
                 conn.execute(
                     "UPDATE clientes SET etapa = ?, tentativas = ?, ultimo_contato = ?, proximo_contato = ?, atualizado_em = ? "
                     "WHERE id = ?", (etapa, tentativas, ts(mexeu) if tentativas else None, proximo, ts(mexeu), cid))
+                if tentativas:
+                    db.registrar(conn, cid, "whatsapp", "saida",
+                                 f"Olá, {c['nome'].split()[0]}! Aqui é o Michael, da Mobie, representante autorizado do "
+                                 f"Consórcio BB. Vi que você demonstrou interesse em consórcio de {c['produto']} pelo Banco do "
+                                 "Brasil. Esse interesse continua?", status="aberto_manual")
                 if etapa in ("respondeu", "negociando", "documentacao", "vendido"):
-                    conn.execute("UPDATE clientes SET repasse_em = ?, repasse_visto = ? WHERE id = ?",
-                                 (ts(mexeu), 0 if mexeu < 30 and etapa != "vendido" else 1, cid))
+                    valor = f"R$ {c['valor_credito']:,.0f}".replace(",", ".")
+                    db.registrar(conn, cid, "whatsapp", "entrada", random.choice(RESPOSTAS[c["produto"]]).format(v=valor))
+                    # Chegou para o representante: os mais recentes ainda sem contato (alguns já atrasados),
+                    # os mais antigos já atendidos; um ou outro devolvido à central por falta de contato.
+                    chegou = mexeu + (random.uniform(1, 30) if etapa != "respondeu" else 0)
+                    atendido = None if etapa == "respondeu" and chegou < 30 else ts(chegou - random.uniform(0.2, 3))
+                    devolvido = ts(chegou - 24) if etapa == "respondeu" and chegou > 60 and random.random() < .5 else None
+                    conn.execute("UPDATE clientes SET repasse_em = ?, repasse_visto = ?, atendido_em = ?, devolvido_em = ?, "
+                                 "proximo_contato = ? WHERE id = ?", (ts(chegou), 0 if not atendido else 1,
+                                                  None if devolvido else atendido, devolvido, ts(1) if devolvido else None, cid))
+                if etapa == "perdido":
+                    conn.execute("UPDATE clientes SET motivo_perda = ? WHERE id = ?", (random.choice(MOTIVOS), cid))
     total = conn.execute("SELECT COUNT(*) FROM clientes").fetchone()[0]
 print(f"ok: {len(REDE)} representantes, {sum(len(r[3]) for r in REDE)} agências, {total} clientes · {DEMO_DB}")

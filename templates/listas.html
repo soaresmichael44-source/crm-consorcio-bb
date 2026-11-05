@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block titulo %}Listas recebidas{% endblock %}
+{% block head %}
+<style>
+.ao-vivo{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--verde);background:#e4f7ee;border-radius:20px;padding:4px 10px}
+.ao-vivo i{width:8px;height:8px;border-radius:50%;background:var(--verde);animation:pulso 1.4s infinite}
+@keyframes pulso{0%{opacity:1}50%{opacity:.25}100%{opacity:1}}
+.lendo{display:flex;align-items:center;gap:12px;background:#fff8dc;border:1px solid #f1df9a;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.lendo .giro{width:26px;height:26px;border:3px solid #f1df9a;border-top-color:var(--azul);border-radius:50%;animation:giro 1s linear infinite;flex-shrink:0}
+@keyframes giro{to{transform:rotate(360deg)}}
+.lista{background:#fff;border:1px solid var(--borda);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.lista.nova{border-color:var(--amarelo);box-shadow:0 0 0 3px #fdf3b8}
+.lista summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.lista summary::-webkit-details-marker{display:none}
+.lista .qtd{background:var(--azul);color:#fff;border-radius:12px;padding:8px 12px;text-align:center;line-height:1.1;min-width:64px}
+.lista .qtd b{display:block;font-size:22px}
+.lista .qtd span{font-size:10px;text-transform:uppercase;letter-spacing:.04em;opacity:.8}
+.lista .tit{flex:1;min-width:180px}
+.lista .tit strong{font-size:15px}
+.lista .tit small{display:block;color:var(--suave);font-size:12px;margin-top:2px}
+.conf{font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;display:inline-block;margin-top:5px}
+.conf.ok{background:#e4f7ee;color:var(--verde)}
+.conf.mais{background:#e8eefe;color:#2d4bc2}
+.conf.indo{background:#fff4d6;color:#8a6200}
+.conf.erro{background:#eee;color:#666}
+.cls{border-top:1px solid var(--borda)}
+.cl{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:9px 16px;border-bottom:1px solid #f1f3f8;font-size:13px}
+.cl:last-child{border-bottom:0}
+.cl .n{color:var(--suave);font-size:11px;text-align:right}
+.cl .nm{font-weight:600}
+.cl small{display:block;color:var(--suave);font-size:12px}
+.cl .st{font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.st.central{background:#eef1f8;color:var(--suave)}
+.st.quente{background:#fdf0dc;color:#9a5b00}
+.st.fechado{background:var(--verde);color:#fff}
+.st.perdido{background:#f3e3e3;color:var(--vermelho)}
+.revisar{margin:0 16px 12px;font-size:12px;background:#fff4d6;color:#7a5a00;border-radius:8px;padding:8px 10px}
+.abas{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.abas a{padding:7px 13px;border-radius:20px;background:#fff;border:1px solid var(--borda);color:var(--texto);font-weight:600;font-size:13px}
+.abas a.on{background:var(--azul);border-color:var(--azul);color:#fff}
+</style>
+{% endblock %}
+{% block corpo %}
+<div class="linha" style="align-items:flex-start">
+  <div><h1>Listas recebidas</h1>
+    <p class="sub" style="margin-bottom:8px">{% if rep_logado %}Assim que o gerente manda a foto da lista, ela aparece aqui: primeiro a leitura rápida, depois a IA confere tudo de novo, cliente por cliente. Os clientes entram no follow-up da operação central.{% else %}Todas as listas que os gerentes mandam, na hora em que chegam, com a leitura rápida e a conferência minuciosa da IA.{% endif %}</p></div>
+  <span class="sp"></span>
+  <span class="ao-vivo"><i></i>ao vivo</span>
+</div>
+{% if reps %}
+<div class="abas"><a href="/listas" class="{{ 'on' if not rep_id }}">Todas</a>
+  {% for r in reps %}<a href="/listas?rep={{ r.id }}" class="{{ 'on' if rep_id == r.id }}">{{ r.nome.split(' ')[0] }}</a>{% endfor %}</div>
+{% endif %}
+
+{% for l in lendo %}
+<div class="lendo"><div class="giro"></div>
+  <div><strong>Lendo a lista de {{ l.gerente }}…</strong><br><small class="muted">{% if l.agencia %}ag. {{ l.agencia }} · {% endif %}chegou há {{ ha(l.criado_em) }}{% if l.rep_nome and not rep_logado %} · {{ l.rep_nome }}{% endif %}. Os clientes aparecem aqui em segundos.</small></div>
+</div>
+{% endfor %}
+
+{% for l in lotes %}
+{% set c = l.conferencia %}
+<details class="lista {{ 'nova' if loop.first and ha(l.criado_em).endswith('min') }}" {{ 'open' if (abrir and abrir == l.id) or (not abrir and loop.first) }} data-id="{{ l.id }}">
+  <summary>
+    <div class="qtd"><b>{{ l.clientes|length }}</b><span>clientes</span></div>
+    <div class="tit"><strong>{{ l.gerente }}</strong>{% if l.agencia %} · ag. {{ l.agencia }}{% endif %}
+      <small>{{ l.criado_em|data }} · há {{ ha(l.criado_em) }}{% if l.credito %} · {{ l.credito|compacto }} em crédito{% endif %}{% if l.rep_nome and not rep_logado %} · {{ l.rep_nome }}{% endif %}</small>
+      {% if not c %}{% if l.criado_em > recente %}<span class="conf indo">🔎 IA conferindo cliente por cliente…</span>{% endif %}
+      {% elif c.erro %}<span class="conf erro">Conferência não concluída</span>
+      {% elif c.adicionados %}<span class="conf mais">✓ Conferida · +{{ c.adicionados|length }} encontrado{{ 's' if c.adicionados|length > 1 }} na 2ª leitura</span>
+      {% else %}<span class="conf ok">✓ Conferida: nenhum cliente faltando</span>{% endif %}
+    </div>
+  </summary>
+  {% if c and c.duvidosos %}<div class="revisar">⚠ Leitura com dúvida, vale conferir com o gerente: {{ c.duvidosos|join(', ') }}</div>{% endif %}
+  <div class="cls">
+    {% for x in l.clientes %}
+    {% set com_rep = x.repasse_em and not x.devolvido_em %}
+    <div class="cl">
+      <span class="n">{{ loop.index }}</span>
+      <div><span class="nm">{% if not rep_logado or com_rep %}<a href="/cliente/{{ x.id }}" style="color:inherit">{{ x.nome }}</a>{% else %}{{ x.nome }}{% endif %}</span>
+        <small>{{ (fmt_tel(x.telefone) or 'sem telefone') if not rep_logado or com_rep else (x.telefone|tel_mascarado) }}{% if x.produto %} · {{ x.produto }}{% endif %}{% if x.valor_credito %} · {{ x.valor_credito|compacto }}{% endif %}{% if c and c.adicionados and x.nome in c.adicionados %} · <strong style="color:#2d4bc2">achado na conferência</strong>{% endif %}</small></div>
+      {% if x.etapa == 'vendido' %}<span class="st fechado">Fechou</span>
+      {% elif x.etapa in ('perdido', 'optout') %}<span class="st perdido">{{ 'Perdido' if x.etapa == 'perdido' else 'Não quer' }}</span>
+      {% elif com_rep %}<span class="st quente">Interessado{% if rep_logado %} · com você{% endif %}</span>
+      {% elif x.etapa == 'contatado' %}<span class="st central">Em contato</span>
+      {% else %}<span class="st central">Na fila</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% else %}
+{% if not lendo %}<div class="card muted">Nenhuma lista nos últimos 30 dias. Quando um gerente mandar a foto pelo portal, ela aparece aqui na hora.</div>{% endif %}
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script>
+// Ao vivo: pergunta a cada 4 s se algo mudou (lista nova, leitura terminou, conferência terminou) e recarrega.
+let sinal = null;
+const rep = new URLSearchParams(location.search).get('rep');
+async function olhar(){
+  try {
+    const r = await fetch('/api/listas/sinal' + (rep ? '?rep=' + rep : '')).then(r => r.json());
+    if (sinal !== null && r.sinal !== sinal) {
+      const aberta = document.querySelector('details.lista[open]');
+      const u = new URL(location.href);
+      if (r.ultimo && (!aberta || +aberta.dataset.id < r.ultimo)) u.searchParams.set('abrir', r.ultimo);
+      else if (aberta) u.searchParams.set('abrir', aberta.dataset.id);
+      location.replace(u);
+      return;
+    }
+    sinal = r.sinal;
+  } catch (e) {}
+  setTimeout(olhar, 4000);
+}
+olhar();
+</script>
+{% endblock %}

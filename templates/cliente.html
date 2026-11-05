@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block titulo %}{{ c.nome }}{% endblock %}
 {% block corpo %}
-<a href="/clientes" class="muted">← Clientes</a>
+<a href="{{ '/atender' if rep_logado else '/clientes' }}" class="muted">← {{ 'Para atender' if rep_logado else 'Clientes' }}</a>
 <div class="linha" style="margin:8px 0 18px">
   <h1 style="margin:0">{{ c.nome }}</h1><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span>
   {% if c.pausado %}<span class="tag">cadência pausada</span>{% endif %}
@@ -10,6 +10,38 @@
 {% if c.alerta_duplicidade and not rep_logado %}<div class="aviso linha" id="avisoDup" style="justify-content:space-between">
   <span>⚠ <strong>Possível duplicidade:</strong> {{ c.alerta_duplicidade }}</span>
   <button class="btn peq" onclick="api('/api/cliente/{{ c.id }}/duplicidade-vista').then(()=>avisoDup.remove())">Ok, conferido</button></div>{% endif %}
+
+{% if com_rep or c.devolvido_em %}
+<div class="card" style="border-color:#dfe5f7">
+  <div class="linha" style="align-items:flex-start">
+    <h2 style="margin:0">Atendimento do representante</h2><span class="sp"></span>
+    {% if c.devolvido_em %}<span class="tag">voltou para a central {{ c.devolvido_em|data }}</span>
+    {% elif c.atendido_em %}<span class="tag respondeu">1º contato {{ c.atendido_em|data }}</span>
+    {% else %}<span class="tag contatado">aguardando o 1º contato · chegou {{ c.repasse_em|data }}</span>{% endif %}
+  </div>
+  {% if c.resumo %}
+  <div style="background:#f4f6fd;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px;line-height:1.5">
+    <div style="font-size:10px;color:var(--suave);text-transform:uppercase;letter-spacing:.04em;font-weight:700">✨ Resumo preparado pela IA · confira antes de usar</div>
+    {{ c.resumo.resumo }}<br><strong>Quer:</strong> {{ c.resumo.quer }}<br><strong>Próximo passo sugerido:</strong> {{ c.resumo.proximo_passo }}
+    <div><button class="btn peq" style="margin-top:6px" onclick="this.disabled=true;api('/api/cliente/{{ c.id }}/resumo').then(()=>location.reload()).catch(e=>{alert(e.message);this.disabled=false})">Refazer resumo</button></div>
+  </div>
+  {% elif com_rep %}<p class="muted" style="font-size:13px">✨ A IA está preparando o resumo da conversa… atualize em alguns segundos.</p>{% endif %}
+  {% if com_rep and c.etapa not in ('vendido', 'perdido', 'optout') %}
+  <div class="linha" style="margin-top:10px;gap:6px">
+    {% if c.telefone %}<button class="btn wa peq" onclick="toque('contato', true)">WhatsApp</button>{% endif %}
+    {% if not c.atendido_em %}<button class="btn peq" onclick="toque('contato')">📞 Fiz contato</button>{% endif %}
+    <button class="btn peq" onclick="toque('simulacao')">Simulação enviada</button>
+    <button class="btn peq" onclick="toque('documentacao')">Documentação</button>
+    <button class="btn peq am" onclick="toque('fechou')">Fechou 🏆</button>
+    <select style="width:auto;font-size:12px;padding:5px 8px" onchange="if(this.value) toque('perdeu', false, this.value)">
+      <option value="">Perdeu…</option>{% for m in MOTIVOS %}<option>{{ m }}</option>{% endfor %}</select>
+  </div>
+  {% endif %}
+  {% if c.devolvido_em and not rep_logado and c.etapa not in ('vendido', 'perdido', 'optout') %}
+  <button class="btn peq" style="margin-top:10px" onclick="api('/api/cliente/{{ c.id }}/repassar').then(()=>location.reload())">Repassar de novo ao representante</button>{% endif %}
+  {% if c.motivo_perda %}<p class="muted" style="margin:8px 0 0">Motivo da perda: <strong>{{ c.motivo_perda }}</strong></p>{% endif %}
+</div>
+{% endif %}
 
 <div class="grid g2" style="align-items:start">
   <div>
@@ -96,6 +128,13 @@
 {% block scripts %}
 <script>
 const CID = {{ c.id }};
+async function toque(acao, whatsapp, motivo){
+  if (acao === 'fechou' && !confirm('Confirmar a venda fechada?')) return;
+  const w = whatsapp ? window.open('about:blank', '_blank') : null;
+  try { const r = await api(`/api/cliente/${CID}/atendimento`, {acao, motivo, whatsapp: !!whatsapp});
+    if (w && r.link) w.location = r.link; else if (w) w.close(); location.reload(); }
+  catch (e) { if (w) w.close(); alert('Erro: ' + e.message); }
+}
 const set = (id, t) => document.getElementById(id).textContent = t;
 document.getElementById('btnSalvar').onclick = async () => {
   const d = {}; document.querySelectorAll('[data-k]').forEach(el => d[el.dataset.k] = el.value);

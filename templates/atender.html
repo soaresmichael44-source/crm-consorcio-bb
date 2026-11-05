@@ -2,13 +2,24 @@
 {% block titulo %}{{ 'Para atender' if rep_logado else 'Repasses' }}{% endblock %}
 {% block head %}
 <style>
-.cli{display:grid;grid-template-columns:1.4fr 1fr 1fr auto;gap:14px;align-items:center;padding:14px 4px;border-bottom:1px solid var(--borda)}
+.cli{display:grid;grid-template-columns:1.1fr 1.6fr;gap:16px;padding:16px 4px;border-bottom:1px solid var(--borda)}
 .cli:last-child{border-bottom:0}
-.cli .nm a{font-weight:700;color:var(--texto)}
+.cli .nm a{font-weight:700;color:var(--texto);font-size:15px}
 .cli small{display:block;color:var(--suave);font-size:12px;margin-top:2px}
 .cli.novo-rep{background:#fffbe6}
-.selo-novo{display:inline-block;margin-left:6px;font-size:10px;font-weight:800;background:var(--amarelo);color:var(--azul);border-radius:5px;padding:2px 6px;vertical-align:2px}
-.cli.fim{opacity:.55}
+.cli.fim,.cli.devolvido{opacity:.6}
+.selo{display:inline-block;margin-left:6px;font-size:10px;font-weight:800;border-radius:5px;padding:2px 6px;vertical-align:2px}
+.selo.novo{background:var(--amarelo);color:var(--azul)}
+.selo.atraso{background:#fbe0d4;color:#9a3412}
+.selo.ok{background:#dff6ec;color:var(--verde)}
+.selo.dev{background:#eee;color:#555}
+.ia{background:#f4f6fd;border:1px solid #dfe5f7;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.45}
+.ia b{color:var(--azul)}
+.ia .marca{font-size:10px;color:var(--suave);text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-bottom:4px}
+.ia .passo{margin-top:6px;padding-top:6px;border-top:1px dashed #cfd7ef}
+.toques{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.toques .btn{font-size:12px;padding:6px 10px}
+.toques select{width:auto;font-size:12px;padding:5px 8px}
 @media (max-width:860px){.cli{grid-template-columns:1fr}}
 </style>
 {% endblock %}
@@ -16,7 +27,7 @@
 <div class="linha" style="align-items:flex-start">
   <div>
     <h1>{{ 'Para atender' if rep_logado else 'Repasses aos representantes' }}</h1>
-    <p class="sub">{% if rep_logado %}Clientes das suas agências que se interessaram no follow-up da operação central. Agora o atendimento é seu: fale com o cliente e atualize a etapa na ficha.{% else %}Clientes que se interessaram no seu follow-up e passaram para o representante da agência atender.{% endif %}</p>
+    <p class="sub">{% if rep_logado %}Clientes das suas agências que se interessaram no follow-up da operação central. Faça o primeiro contato em até <strong>{{ cfg.prazo_atendimento_horas }} h</strong>; sem contato em {{ cfg.prazo_devolucao_horas }} h, o cliente volta para a central.{% else %}Interessados que passaram para o representante. Prazo do 1º contato: {{ cfg.prazo_atendimento_horas }} h · sem contato em {{ cfg.prazo_devolucao_horas }} h volta para a central.{% endif %}</p>
   </div>
   <span class="sp"></span>
   {% if not rep_logado %}
@@ -30,20 +41,60 @@
 <div class="card">
 {% for c in itens %}
   {% set encerrado = c.etapa in ('vendido', 'perdido', 'optout') %}
-  <div class="cli {{ 'novo-rep' if not c.repasse_visto and not encerrado }} {{ 'fim' if encerrado }}">
-    <div class="nm"><a href="/cliente/{{ c.id }}">{{ c.nome }}</a>{% if not c.repasse_visto and not encerrado %}<span class="selo-novo">NOVO</span>{% endif %}
-      <small>{{ c.produto or 'produto a confirmar' }}{% if c.valor_credito %} · {{ c.valor_credito|dinheiro }}{% endif %}</small></div>
-    <div><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span>
-      <small>chegou {{ c.repasse_em|data }}</small></div>
-    <div>🏦 {% if c.agencia %}ag. {{ c.agencia }}{% else %}agência{% endif %}
-      <small>{{ c.gerente_nome }}{% if c.gerente_cidade %} · {{ c.gerente_cidade }}{% endif %}{% if c.gerente_uf %}/{{ c.gerente_uf }}{% endif %}{% if not rep_logado %} · rep. {{ c.rep_nome }}{% endif %}</small></div>
-    <div class="linha">
-      {% if c.telefone %}<a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/{{ c.telefone }}">WhatsApp</a>{% endif %}
-      <a class="btn peq" href="/cliente/{{ c.id }}">Abrir ficha</a>
+  <div class="cli {{ 'novo-rep' if not c.repasse_visto and not encerrado and not c.devolvido_em }} {{ 'fim' if encerrado }} {{ 'devolvido' if c.devolvido_em }}" id="c{{ c.id }}">
+    <div>
+      <div class="nm"><a href="/cliente/{{ c.id }}">{{ c.nome }}</a>
+        {% if c.devolvido_em %}<span class="selo dev">VOLTOU PARA A CENTRAL</span>
+        {% elif c.atrasado %}<span class="selo atraso">⏰ SEM CONTATO HÁ {{ ha(c.repasse_em)|upper }}</span>
+        {% elif not c.repasse_visto and not encerrado %}<span class="selo novo">NOVO</span>
+        {% elif c.atendido_em and not encerrado %}<span class="selo ok">EM ATENDIMENTO</span>{% endif %}</div>
+      <small>{{ c.produto or 'produto a confirmar' }}{% if c.valor_credito %} · {{ c.valor_credito|dinheiro }}{% endif %}</small>
+      <div style="margin-top:6px"><span class="tag {{ c.etapa }}">{{ ETAPAS_DICT[c.etapa] }}</span>
+        {% if c.motivo_perda %}<small>motivo: {{ c.motivo_perda }}</small>{% endif %}
+        <small>chegou há {{ ha(c.repasse_em) }}{% if c.atendido_em %} · 1º contato em {{ c.atendido_em|data }}{% endif %}</small></div>
+      <small style="margin-top:6px">🏦 {% if c.agencia %}ag. {{ c.agencia }}{% else %}agência{% endif %} · {{ c.gerente_nome }}{% if c.gerente_cidade %} · {{ c.gerente_cidade }}{% endif %}{% if c.gerente_uf %}/{{ c.gerente_uf }}{% endif %}{% if not rep_logado %} · rep. {{ c.rep_nome }}{% endif %}</small>
+    </div>
+    <div>
+      {% if c.resumo %}
+      <div class="ia"><div class="marca">✨ Resumo preparado pela IA · confira antes de usar</div>
+        {{ c.resumo.resumo }}<br><b>Quer:</b> {{ c.resumo.quer }}
+        <div class="passo"><b>Próximo passo sugerido:</b> {{ c.resumo.proximo_passo }}</div></div>
+      {% elif not encerrado and not c.devolvido_em %}
+      <div class="ia muted">✨ A IA está preparando o resumo da conversa… atualize a página em alguns segundos.</div>
+      {% endif %}
+      {% if c.devolvido_em %}
+        {% if not rep_logado %}<div class="toques"><button class="btn" onclick="repassar({{ c.id }})">Repassar de novo para {{ c.rep_nome.split(' ')[0] }}</button></div>{% endif %}
+      {% elif not encerrado %}
+      <div class="toques">
+        {% if c.telefone %}<button class="btn wa" onclick="toque({{ c.id }}, 'contato', true)">WhatsApp</button>{% endif %}
+        {% if not c.atendido_em %}<button class="btn" onclick="toque({{ c.id }}, 'contato')">📞 Fiz contato</button>{% endif %}
+        {% if c.etapa not in ('negociando', 'documentacao') %}<button class="btn" onclick="toque({{ c.id }}, 'simulacao')">Simulação enviada</button>{% endif %}
+        {% if c.etapa != 'documentacao' %}<button class="btn" onclick="toque({{ c.id }}, 'documentacao')">Documentação</button>{% endif %}
+        <button class="btn am" onclick="toque({{ c.id }}, 'fechou')">Fechou 🏆</button>
+        <select onchange="if(this.value) toque({{ c.id }}, 'perdeu', false, this.value)">
+          <option value="">Perdeu…</option>{% for m in MOTIVOS %}<option>{{ m }}</option>{% endfor %}</select>
+      </div>
+      {% endif %}
     </div>
   </div>
 {% else %}
   <p class="muted">{% if rep_logado %}Nenhum cliente interessado ainda. Assim que um cliente das suas agências responder ao follow-up, ele aparece aqui.{% else %}Nenhum repasse ainda.{% endif %}</p>
 {% endfor %}
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function toque(id, acao, whatsapp, motivo){
+  if (acao === 'fechou' && !confirm('Confirmar a venda fechada?')) return;
+  const w = whatsapp ? window.open('about:blank', '_blank') : null;  // antes do await: o navegador não bloqueia
+  try {
+    const r = await api(`/api/cliente/${id}/atendimento`, {acao, motivo, whatsapp: !!whatsapp});
+    if (w && r.link) w.location = r.link; else if (w) w.close();
+    location.reload();
+  } catch (e) { if (w) w.close(); alert('Erro: ' + e.message); }
+}
+async function repassar(id){
+  try { await api(`/api/cliente/${id}/repassar`); location.reload(); } catch (e) { alert('Erro: ' + e.message); }
+}
+</script>
 {% endblock %}

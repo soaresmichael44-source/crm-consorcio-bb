@@ -40,6 +40,9 @@ main{max-width:none}
   <div class="col {{ col.etapa }}">
     <h3>{{ col.titulo }}<b>{{ col.n }}</b></h3>
     <div class="soma">{{ col.credito|compacto }} em crédito</div>
+    {% if col.etapa in so_numeros %}
+    <div class="mais" style="padding:16px 6px;text-align:left;line-height:1.5">🔒 {{ col.n }} cliente{{ 's' if col.n != 1 }} em follow-up pela operação central. Quando se interessarem, chegam para você em <a href="/atender">Para atender</a>.</div>
+    {% else %}
     {% for c in col.itens %}
     <a class="cartao" href="/cliente/{{ c.id }}">
       <div class="nm">{{ c.nome }}</div>
@@ -52,7 +55,8 @@ main{max-width:none}
       </div>
     </a>
     {% else %}<div class="mais">—</div>{% endfor %}
-    {% if col.n > col.itens|length %}<div class="mais">+ {{ col.n - col.itens|length }} em <a href="/clientes?etapa={{ col.etapa }}{{ '&rep=' ~ rep_id if rep_id is not none }}">Clientes</a></div>{% endif %}
+    {% endif %}
+    {% if col.n > col.itens|length and col.etapa not in so_numeros %}<div class="mais">+ {{ col.n - col.itens|length }} em <a href="/clientes?etapa={{ col.etapa }}{{ '&rep=' ~ rep_id if rep_id is not none }}">Clientes</a></div>{% endif %}
   </div>
   {% endfor %}
 </div>

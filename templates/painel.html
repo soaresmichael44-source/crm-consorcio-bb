@@ -26,6 +26,9 @@
 .rep .rodape small{display:block;color:var(--suave);font-size:12px}
 .rep .rodape strong{color:var(--verde)}
 .rep .rodape a{margin-left:auto}
+.rep .atend{display:flex;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--suave);margin:0 0 10px}
+.rep .atend strong{color:var(--azul)}
+.rep .atend .ruim{background:#fbe0d4;color:#9a3412;border-radius:6px;padding:1px 6px;font-weight:700}
 .duas{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
 @media (max-width:860px){.duas{grid-template-columns:1fr}}
 .mov{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--borda)}
@@ -53,7 +56,7 @@
   <button class="btn peq" onclick="api('/api/docs-clientes/vistos').then(()=>avisoDocs.remove())">Ok, visto</button>
 </div>{% endif %}
 {% if recebidos %}<div class="aviso ok linha" id="avisoRecebidos" style="justify-content:space-between">
-  <span>📷 Novas listas: {% for r in recebidos %}<strong>{{ r.contatos }}</strong> de {{ r.nome }}{{ ', ' if not loop.last }}{% endfor %}. Já estão na fila.</span>
+  <span>📷 Novas listas: {% for r in recebidos %}<strong>{{ r.contatos }}</strong> de {{ r.nome }}{{ ', ' if not loop.last }}{% endfor %}. Já estão na fila. <a href="/listas">Ver as listas ›</a></span>
   <button class="btn peq" onclick="api('/api/lotes/vistos').then(()=>avisoRecebidos.remove())">Ok, visto</button>
 </div>{% endif %}
 
@@ -88,6 +91,11 @@
       <a href="/negociacoes?rep={{ r.id }}"><b>{{ r.prod.fechados }}</b><span>fechados</span></a>
       <a href="/clientes?rep={{ r.id }}"><b>{{ r.prod.clientes }}</b><span>clientes</span></a>
     </div>
+    <div class="atend">
+      <span title="Tempo médio entre o cliente chegar e o primeiro contato (30 dias)">⚡ 1º contato: <strong>{{ r.tempo_medio or '—' }}</strong></span>
+      {% if r.atrasados %}<span class="ruim">⏰ {{ r.atrasados }} sem contato no prazo</span>{% endif %}
+      {% if r.devolvidos %}<span class="ruim">↩ {{ r.devolvidos }} devolvido{{ 's' if r.devolvidos > 1 }}</span>{% endif %}
+    </div>
     <div class="rodape"><div><strong>{{ r.prod.credito_fechado|compacto }}</strong> fechado<small>{{ r.prod.credito_andamento|compacto }} em negociação</small></div>
       <a href="/negociacoes?rep={{ r.id }}">Negociações ›</a></div>
   </div>
@@ -106,6 +114,25 @@
     {% else %}<p class="muted">Nenhuma movimentação ainda.</p>{% endfor %}
   </div>
   <div>
+    {% if devolvidos %}
+    <div class="card" style="border-color:#f3c3a8">
+      <div class="secao" style="margin-top:0">↩ Voltaram para a central (sem atendimento)</div>
+      {% for c in devolvidos %}
+      <div class="mov" id="dev{{ c.id }}"><div><a href="/cliente/{{ c.id }}">{{ c.nome }}</a><small>era de {{ c.rep_nome }}{% if c.valor_credito %} · {{ c.valor_credito|compacto }}{% endif %} · há {{ ha(c.devolvido_em) }}</small></div>
+        <button class="btn peq" style="margin-left:auto" onclick="api('/api/cliente/{{ c.id }}/repassar').then(()=>document.getElementById('dev{{ c.id }}').remove())">Repassar de novo</button></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if motivos %}
+    <div class="card">
+      <div class="secao" style="margin-top:0">Por que as vendas se perdem</div>
+      {% set tot = motivos|sum(attribute='n') %}
+      {% for m in motivos %}
+      <div style="font-size:13px;margin:6px 0">{{ m.motivo }} <span class="muted">· {{ m.n }}</span>
+        <div style="background:#eef1f8;border-radius:4px;height:6px;margin-top:3px"><div style="background:var(--azul-2);height:6px;border-radius:4px;width:{{ (100 * m.n / tot)|round }}%"></div></div></div>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if parados %}
     <div class="card" style="border-color:#f1df9a">
       <div class="secao" style="margin-top:0">⏰ Interessados sem atendimento há +24 h</div>
