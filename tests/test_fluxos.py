@@ -20,6 +20,7 @@ os.environ.update({
     "SECRET_KEY": "teste",
     "SUPABASE_URL": "",          # arquivos na pasta local
     "GEMINI_API_KEY": "",
+    "PASTA_DEMO_REP": str(Path(_PASTA) / "demo-rep"),
 })
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -136,6 +137,43 @@ class ListasAoVivo(Base):
         html = self.c.get("/listas").get_data(as_text=True)
         self.assertIn("Sara De Outro", html)
         self.assertIn("98765-1234", html)
+
+
+class PortalDoRepresentante(Base):
+    def test_pagina_de_entrada_abre_sem_login(self):
+        html = self.c.get("/representante").get_data(as_text=True)
+        self.assertIn("Portal do Representante", html)
+        self.assertIn("/representante/demonstracao", html)
+        self.assertEqual(self.c.get("/representante.webmanifest").status_code, 200)
+
+    def test_login_errado_volta_para_a_pagina_do_representante(self):
+        r = self.c.post("/login", data={"login": "ninguem", "senha": "x", "origem": "rep"})
+        self.assertIn("Portal do Representante", r.get_data(as_text=True))
+        self.assertIn("incorretos", r.get_data(as_text=True))
+
+    def test_demonstracao_nunca_encosta_nos_dados_reais(self):
+        with db.conectar() as conn:
+            rep = novo_rep(conn, "Real")
+            lista(conn, novo_gerente(conn, rep), {"nome": "Cliente Real Secreto", "telefone": telefone()})
+            antes = conn.execute("SELECT COUNT(*) FROM clientes").fetchone()[0]
+        self.assertEqual(self.c.get("/representante/demonstracao").status_code, 302)
+        for url in ("/", "/listas", "/atender", "/negociacoes", "/fila", "/meus-gerentes"):
+            r = self.c.get(url)
+            self.assertEqual(r.status_code, 200, url)
+            self.assertNotIn("Cliente Real Secreto", r.get_data(as_text=True), url)
+        self.assertIn("Demonstração", self.c.get("/").get_data(as_text=True))
+        self.c.post("/representante/demonstracao/lista")  # simula uma lista: grava só no banco de exemplo
+        self.assertEqual(self.c.get("/rede").status_code, 302)  # telas da operação continuam fechadas
+        with db.conectar() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM clientes").fetchone()[0], antes)
+        self.assertEqual(self.c.get("/sair").headers["Location"], "/representante")
+        self.assertEqual(self.c.get("/").status_code, 302)  # saiu: pede login de novo
+
+    def test_simular_lista_so_existe_na_demonstracao(self):
+        with db.conectar() as conn:
+            rep = novo_rep(conn)
+        self.como_rep(rep)
+        self.assertEqual(self.c.post("/representante/demonstracao/lista").status_code, 404)
 
 
 class Duplicidade(Base):

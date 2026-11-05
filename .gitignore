@@ -14,3 +14,4 @@ __pycache__/
 .DS_Store
 n8n/
 qrcodes/
+demo/acessos-teste.txt

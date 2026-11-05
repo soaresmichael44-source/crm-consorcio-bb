@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#16245c">
+<link rel="manifest" href="/representante.webmanifest">
+<link rel="apple-touch-icon" href="/static/icone-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Representante">
+<title>Portal do Representante · Consórcio BB</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Inter,system-ui,sans-serif;color:#18203a;
+  background:radial-gradient(1200px 600px at 10% -10%,#2a3f95 0%,transparent 60%),linear-gradient(160deg,#16245c 0%,#0f1a45 100%);
+  display:flex;align-items:center;justify-content:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom))}
+.caixa{width:100%;max-width:400px}
+.marca{color:#fff;text-align:center;margin-bottom:22px}
+.selo{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:18px;background:#f8d936;
+  color:#16245c;font-weight:800;font-size:26px;letter-spacing:-.02em;box-shadow:0 10px 30px rgba(0,0,0,.25);margin-bottom:14px}
+.marca h1{margin:0;font-size:24px;font-weight:800;letter-spacing:-.01em}
+.marca p{margin:6px 0 0;color:#c9d2f2;font-size:14px}
+.marca .tag{display:inline-block;margin-top:10px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#f8d936}
+form,.demo{background:#fff;border-radius:18px;padding:24px 22px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+label{display:block;font-size:12px;font-weight:700;color:#5b6584;margin:0 0 6px}
+input{width:100%;font:inherit;font-size:16px;border:1.5px solid #e1e5f0;border-radius:12px;padding:13px 14px;margin-bottom:14px;background:#fbfcff}
+input:focus{outline:none;border-color:#22367f;background:#fff}
+button,.btn{display:block;width:100%;text-align:center;border:0;border-radius:12px;padding:15px;font:inherit;font-weight:800;font-size:16px;cursor:pointer;text-decoration:none}
+button{background:#f8d936;color:#16245c}
+.ajuda{font-size:12.5px;color:#5b6584;margin:14px 0 0;line-height:1.5}
+.erro{background:#fbe9e9;color:#8f2525;border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:14px}
+.ou{display:flex;align-items:center;gap:10px;color:#9fb0e0;font-size:12px;margin:18px 4px}
+.ou::before,.ou::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.18)}
+.demo{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);box-shadow:none;color:#fff;padding:18px 20px}
+.demo strong{display:block;font-size:15px}
+.demo span{display:block;color:#c9d2f2;font-size:13px;margin:4px 0 12px;line-height:1.45}
+.demo .btn{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.5);padding:12px}
+.rodape{text-align:center;color:#8193cf;font-size:11.5px;margin-top:20px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="caixa">
+  <div class="marca">
+    <div class="selo">M</div>
+    <h1>Portal do Representante</h1>
+    <p>Mobie · Consórcio BB</p>
+    <span class="tag">Rede de representantes autorizados</span>
+  </div>
+
+  <form method="post" action="/login" autocomplete="on">
+    {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+    <input type="hidden" name="origem" value="rep">
+    <input type="hidden" name="proximo" value="/">
+    <label for="login">Login</label>
+    <input id="login" name="login" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="ex.: carina" required>
+    <label for="senha">Senha</label>
+    <input id="senha" type="password" name="senha" autocomplete="current-password" required>
+    <button>Entrar</button>
+    <p class="ajuda"><strong>Primeiro acesso?</strong> Abra o link de convite que você recebeu no WhatsApp: nele você escolhe o seu login e cria a sua senha. Esqueceu a senha? Peça um link novo para a Mobie.</p>
+  </form>
+
+  <div class="ou">ou</div>
+
+  <div class="demo">
+    <strong>Ainda não tem acesso?</strong>
+    <span>Conheça o portal por dentro com uma rede de exemplo: listas chegando, clientes interessados e negociações. Dados fictícios.</span>
+    <a class="btn" href="/representante/demonstracao">Conhecer o portal (demonstração)</a>
+  </div>
+
+  <p class="rodape">Acesso exclusivo para representantes autorizados.<br>No celular: toque em Compartilhar › "Adicionar à Tela de Início" para usar como aplicativo.</p>
+</div>
+</body>
+</html>

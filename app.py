@@ -4,6 +4,7 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -59,9 +60,37 @@ _tentativas = defaultdict(list)  # ip -> horários de senhas erradas
 db.iniciar()
 
 
+# Demonstração do Portal do Representante: quem entra por /representante/demonstracao usa um banco de exemplo
+# (rede fictícia de 5 representantes), montado num processo à parte, sem nenhuma variável da nuvem.
+PASTA_DEMO_REP = Path(os.getenv("PASTA_DEMO_REP", "/tmp/crm-bb-demo-rep"))
+_trava_demo_rep = threading.Lock()
+
+
+def _banco_demo_rep():
+    arq = PASTA_DEMO_REP / "rede_demo.db"
+    with _trava_demo_rep:
+        # Refeito a cada 6 h para os horários ("chegou há 2 h") continuarem vivos.
+        if not arq.exists() or time.time() - arq.stat().st_mtime > 6 * 3600:
+            import subprocess
+            import sys
+            PASTA_DEMO_REP.mkdir(parents=True, exist_ok=True)
+            env = {k: v for k, v in os.environ.items() if k not in ("DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_KEY")}
+            env["DEMO_DB"] = str(arq)
+            subprocess.run([sys.executable, str(BASE / "demo" / "montar_demo_rede.py")], env=env, cwd=str(BASE),
+                           check=True, capture_output=True, timeout=120)
+    return {"db": str(arq), "docs": str(PASTA_DEMO_REP / "documentos")}
+
+
 @app.before_request
 def _zerar_demo():
-    db._banco_demo.set(None)  # o CRM nunca usa o banco de demonstração do Portal
+    db._banco_demo.set(None)  # o CRM nunca usa o banco de demonstração do Portal do Gerente
+    if session.get("rep_demo"):  # ...exceto quem está na demonstração do representante: só o banco de exemplo
+        db._banco_demo.set(_banco_demo_rep())
+
+
+@app.teardown_request
+def _fim_demo(_erro=None):
+    db._banco_demo.set(None)
 
 
 @app.before_request
@@ -78,7 +107,7 @@ def _exigir_login():
         session.clear()  # representante desativado: perde o acesso na hora
     if DEMO or session.get("logado") or (not FORCAR_LOGIN and request.remote_addr in ("127.0.0.1", "::1")):
         return None
-    if request.path.startswith(("/static/", "/api/n8n/", "/acesso/")) or request.path in ("/login", "/app.webmanifest"):
+    if request.path.startswith(("/static/", "/api/n8n/", "/acesso/", "/representante")) or request.path in ("/login", "/app.webmanifest"):
         return None
     if request.path.startswith("/api/"):
         return jsonify(erro="Sessão expirada. Entre de novo."), 401
@@ -109,6 +138,8 @@ def login():
                     return redirect(proximo)
             _tentativas[ip].append(time.time())
             erro = "Login ou senha incorretos."
+            if request.form.get("origem") == "rep":
+                return render_template("representante_entrar.html", erro=erro)
         elif any(x and secrets.compare_digest(request.form.get("senha", ""), x) for x in (SENHA, SENHA_APRESENTACAO)):
             session.clear()
             session.permanent = True
@@ -122,8 +153,64 @@ def login():
 
 @app.get("/sair")
 def sair():
+    era_rep = bool(session.get("rep_id"))
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(url_for("portal_representante") if era_rep else url_for("login"))
+
+
+@app.get("/representante")
+def portal_representante():
+    """Link único do Portal do Representante: entrar com login e senha, ou conhecer pela demonstração."""
+    if g.rep and not session.get("rep_demo"):
+        return redirect(url_for("painel"))
+    return render_template("representante_entrar.html", erro=None)
+
+
+@app.get("/representante/demonstracao")
+def demonstracao_representante():
+    """Entra como a representante de exemplo (Carina) num banco fictício: nada encosta nos dados reais."""
+    session.clear()
+    session["rep_demo"] = True
+    db._banco_demo.set(_banco_demo_rep())
+    with db.conectar() as conn:
+        r = conn.execute("SELECT id FROM representantes WHERE nome LIKE 'Carina%'").fetchone()
+    session["rep_id"] = r["id"]
+    return redirect(url_for("painel"))
+
+
+@app.post("/representante/demonstracao/lista")
+def demonstracao_lista():
+    """Na demonstração: simula o gerente mandando uma lista agora, para ver ela chegar em Listas."""
+    if not session.get("rep_demo") or not g.rep:
+        abort(404)
+    import random
+    nomes = ["Aline", "Breno", "Camila", "Diego", "Érica", "Felipe", "Gabriela", "Heitor", "Ingrid", "Júlio", "Lívia", "Mateus"]
+    sobren = ["Prado", "Lacerda", "Monteiro", "Siqueira", "Valença", "Cordeiro", "Brandão", "Paiva", "Queiroz", "Tavares"]
+    produtos = [("imóvel", 180_000, 480_000), ("auto", 60_000, 150_000), ("pesados", 250_000, 550_000), ("moto", 15_000, 35_000)]
+    clientes = []
+    for _ in range(random.randint(8, 12)):
+        p, lo, hi = random.choice(produtos)
+        clientes.append({"nome": f"{random.choice(nomes)} {random.choice(sobren)} {random.choice(sobren)}", "produto": p,
+                         "valor_credito": round(random.uniform(lo, hi), -3),
+                         "telefone": f"5541{random.choice([98, 99])}{random.randint(1_000_000, 9_999_999)}"})
+    with db.conectar() as conn:
+        ger = conn.execute("SELECT * FROM gerentes WHERE representante_id = ? AND ativo = 1 ORDER BY RANDOM() LIMIT 1",
+                           (g.rep["id"],)).fetchone()
+        lote_id, _, _ = db.importar_lote(conn, clientes, f"Enviado pelo celular · {ger['nome']}", 1, gerente_id=ger["id"])
+        conn.execute("UPDATE lotes SET conferencia = ? WHERE id = ?", (json.dumps(
+            {"conferido_em": db.agora(), "rapida": len(clientes), "minuciosa": len(clientes), "adicionados": [], "duvidosos": []}),
+            lote_id))
+    return redirect(url_for("listas", abrir=lote_id))
+
+
+@app.get("/representante.webmanifest")
+def manifest_representante():
+    """Instalável na tela do celular: abre direto no Portal do Representante."""
+    return jsonify(
+        name="Portal do Representante · Consórcio BB", short_name="Representante", start_url="/representante",
+        scope="/", display="standalone", background_color="#16245c", theme_color="#16245c",
+        icons=[{"src": "/static/icone-192.png", "sizes": "192x192", "type": "image/png"},
+               {"src": "/static/icone-512.png", "sizes": "512x512", "type": "image/png"}])
 
 
 @app.route("/acesso/<token>", methods=["GET", "POST"])

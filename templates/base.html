@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block titulo %}CRM BB{% endblock %} · Consórcio BB</title>
 <meta name="theme-color" content="#16245c">
-<link rel="manifest" href="/app.webmanifest">
+<link rel="manifest" href="{{ '/representante.webmanifest' if rep_logado else '/app.webmanifest' }}">
 <link rel="apple-touch-icon" href="/static/icone-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -99,6 +99,9 @@ nav.baixo{display:none}
 {% block head %}{% endblock %}
 </head>
 <body class="{{ 'rep' if rep_logado }}">
+{% if session.get('rep_demo') %}<div class="vendo" style="background:#e8eefe;color:#16245c"><span>🧪 <strong>Demonstração</strong> · rede de exemplo com dados fictícios. Experimente à vontade.</span>
+  <form method="post" action="/representante/demonstracao/lista" style="margin:0 0 0 auto"><button class="btn peq">📷 Simular lista do gerente</button></form>
+  <a href="/sair" style="margin-left:0">Sair</a></div>{% endif %}
 {% if session.get('ver_como') and rep_logado %}<div class="vendo"><span>👁 Você está vendo o CRM como <strong>{{ rep_logado.nome }}</strong> vê.</span><a href="/voltar-operacao">Voltar para a operação</a></div>{% endif %}
 {% if rep_logado %}<div class="topo-rep"><div><b>Consórcio BB</b><small>{{ rep_logado.nome }} · representante</small></div>
   <a href="/documentos">Documentos</a>{% if not session.get('ver_como') %}<a href="/sair">Sair</a>{% endif %}</div>{% endif %}
