@@ -111,6 +111,8 @@ def _exigir_login():
         return None
     if request.path.startswith("/api/"):
         return jsonify(erro="Sessão expirada. Entre de novo."), 401
+    if request.path == "/":  # o endereço principal já é a entrada do portal (o link que vai para os representantes)
+        return render_template("representante_entrar.html", erro=None)
     return redirect(url_for("login", proximo=request.full_path))
 
 
@@ -138,8 +140,6 @@ def login():
                     return redirect(proximo)
             _tentativas[ip].append(time.time())
             erro = "Login ou senha incorretos."
-            if request.form.get("origem") == "rep":
-                return render_template("representante_entrar.html", erro=erro)
         elif any(x and secrets.compare_digest(request.form.get("senha", ""), x) for x in (SENHA, SENHA_APRESENTACAO)):
             session.clear()
             session.permanent = True
@@ -148,6 +148,8 @@ def login():
         else:
             _tentativas[ip].append(time.time())
             erro = "Senha incorreta." if SENHA else "Acesso de fora do Mac está desligado (sem CRM_BB_SENHA no .env)."
+    if request.form.get("origem") == "rep":
+        return render_template("representante_entrar.html", erro=erro)
     return render_template("login.html", erro=erro, proximo=proximo)
 
 
@@ -155,7 +157,7 @@ def login():
 def sair():
     era_rep = bool(session.get("rep_id"))
     session.clear()
-    return redirect(url_for("portal_representante") if era_rep else url_for("login"))
+    return redirect("/" if era_rep else url_for("login"))
 
 
 @app.get("/representante")
@@ -207,7 +209,7 @@ def demonstracao_lista():
 def manifest_representante():
     """Instalável na tela do celular: abre direto no Portal do Representante."""
     return jsonify(
-        name="Portal do Representante · Consórcio BB", short_name="Representante", start_url="/representante",
+        name="Portal do Representante · Consórcio BB", short_name="Representante", start_url="/",
         scope="/", display="standalone", background_color="#16245c", theme_color="#16245c",
         icons=[{"src": "/static/icone-192.png", "sizes": "192x192", "type": "image/png"},
                {"src": "/static/icone-512.png", "sizes": "512x512", "type": "image/png"}])

@@ -166,8 +166,8 @@ class PortalDoRepresentante(Base):
         self.assertEqual(self.c.get("/rede").status_code, 302)  # telas da operação continuam fechadas
         with db.conectar() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM clientes").fetchone()[0], antes)
-        self.assertEqual(self.c.get("/sair").headers["Location"], "/representante")
-        self.assertEqual(self.c.get("/").status_code, 302)  # saiu: pede login de novo
+        self.assertEqual(self.c.get("/sair").headers["Location"], "/")
+        self.assertIn("Portal do Representante", self.c.get("/").get_data(as_text=True))  # saiu: volta à entrada
 
     def test_simular_lista_so_existe_na_demonstracao(self):
         with db.conectar() as conn:
@@ -231,7 +231,10 @@ class Permissoes(Base):
             self.cli_b = conn.execute("SELECT id FROM clientes WHERE nome = 'Cliente Do Beto' ORDER BY id DESC").fetchone()["id"]
 
     def test_sem_login_nao_entra(self):
-        self.assertEqual(self.c.get("/").status_code, 302)
+        r = self.c.get("/")  # o endereço principal mostra a entrada do portal, nunca o painel
+        self.assertIn("Portal do Representante", r.get_data(as_text=True))
+        self.assertNotIn("Painel da operação", r.get_data(as_text=True))
+        self.assertEqual(self.c.get("/clientes").status_code, 302)
         self.assertEqual(self.c.post("/api/ciclo", json={}).status_code, 401)
 
     def test_representante_ve_so_a_carteira_dele(self):
