@@ -173,6 +173,8 @@ MIGRACOES = [
     ("clientes", "resumo_ia", "TEXT"),
     # Conferência minuciosa da lista (2ª leitura, modelo maior, em segundo plano): JSON com o que achou.
     ("lotes", "conferencia", "TEXT"),
+    # Representante entra com um login curto (ex.: "carina"), escolhido por ele no convite; e-mail fica opcional.
+    ("representantes", "login", "TEXT"),
 ]
 
 ETAPAS_REPASSE = ("respondeu", "negociando", "documentacao")

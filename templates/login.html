@@ -23,9 +23,9 @@ button{width:100%;margin-top:14px;background:#f8d936;color:#16245c;border:0;bord
   <p>Operação Banco do Brasil</p>
   {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
   <input type="hidden" name="proximo" value="{{ proximo }}">
-  <input type="email" name="email" placeholder="E-mail (representantes)" autocomplete="username" autocapitalize="none" style="margin-bottom:10px">
+  <input name="login" placeholder="Login (representantes)" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" style="margin-bottom:10px">
   <input type="password" name="senha" placeholder="Senha" autocomplete="current-password" required>
-  <small style="display:block;margin-top:10px;color:#5b6584;font-size:12px">Representante: entre com o seu e-mail e a senha que você criou no convite.</small>
+  <small style="display:block;margin-top:10px;color:#5b6584;font-size:12px">Representante: entre com o seu login e a senha que você criou no convite.</small>
   <button>Entrar</button>
 </form>
 </body>

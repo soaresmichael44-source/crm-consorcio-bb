@@ -116,14 +116,14 @@ th.num{text-align:right}
 <div class="card" id="acesso">
   <h2>Acesso de {{ r.nome.split(' ')[0] }} ao CRM</h2>
   {% if r.senha_hash %}
-  <p class="muted" style="margin-top:0">{{ r.nome.split(' ')[0] }} já tem acesso com o e-mail <strong>{{ r.email }}</strong>{% if r.ultimo_acesso %} · último acesso {{ r.ultimo_acesso|data }}{% endif %}. Ele vê só os gerentes, as listas e os clientes dele. Se ele esquecer a senha, gere um link novo.</p>
+  <p class="muted" style="margin-top:0">{{ r.nome.split(' ')[0] }} já tem acesso com o login <strong>{{ r.login or r.email }}</strong>{% if r.ultimo_acesso %} · último acesso {{ r.ultimo_acesso|data }}{% endif %}. Ele vê só os gerentes, as listas e os clientes dele. Se ele esquecer a senha, gere um link novo.</p>
   {% else %}
-  <p class="muted" style="margin-top:0">Gere o link e mande para {{ r.nome.split(' ')[0] }}. Ele abre, confirma o e-mail e cria a própria senha: você nunca precisa saber a senha dele. O link vale 7 dias e funciona uma vez só.</p>
+  <p class="muted" style="margin-top:0">Gere o link e mande para {{ r.nome.split(' ')[0] }}. Ele abre, escolhe o login e cria a própria senha: você nunca precisa saber a senha dele. O link vale 7 dias e funciona uma vez só.</p>
   {% endif %}
   {% if convite %}
   <div class="linha"><input readonly value="{{ convite }}" onclick="this.select()" style="flex:1;font-size:12px">
     <button class="btn peq" type="button" onclick="navigator.clipboard.writeText('{{ convite }}');this.textContent='Copiado!'">Copiar</button>
-    <a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/{{ r.telefone or '' }}?text={{ ('Olá, ' ~ r.nome.split(' ')[0] ~ '! Este é o seu acesso ao CRM Consórcio BB. Abra o link, confirme o seu e-mail e crie a sua senha (vale 7 dias): ' ~ convite)|urlencode }}">Mandar pelo WhatsApp</a></div>
+    <a class="btn peq wa" target="_blank" rel="noopener" href="https://wa.me/{{ r.telefone or '' }}?text={{ ('Olá, ' ~ r.nome.split(' ')[0] ~ '! Este é o seu acesso ao CRM Consórcio BB. Abra o link, escolha o seu login e crie a sua senha (vale 7 dias): ' ~ convite)|urlencode }}">Mandar pelo WhatsApp</a></div>
   {% else %}
   <form method="post" style="margin:0"><input type="hidden" name="acao" value="convite">
     <button class="btn am">{{ 'Gerar link para trocar a senha' if r.senha_hash else 'Gerar link de acesso' }}</button></form>

@@ -29,8 +29,9 @@ button{width:100%;margin-top:18px;background:#f8d936;color:#16245c;border:0;bord
   <h1>Olá, {{ r.nome.split(' ')[0] }}!</h1>
   <p>Crie a sua senha para entrar no CRM Consórcio BB. Você vai incluir os seus gerentes de agência e atender os clientes interessados que chegarem deles.</p>
   {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
-  <label for="email">Seu e-mail (é o seu login)</label>
-  <input id="email" type="email" name="email" value="{{ request.form.email or r.email or '' }}" autocomplete="username" autocapitalize="none" required>
+  <label for="login">Escolha o seu login</label>
+  <input id="login" name="login" value="{{ request.form.login or sugestao }}" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" pattern="[a-zA-Z0-9._]{3,20}" maxlength="20" required>
+  <small style="display:block;color:#5b6584;font-size:12px;margin-top:4px">Curto e fácil de lembrar: letras e números, sem espaço.</small>
   <label for="senha">Crie uma senha (mínimo 8 caracteres)</label>
   <input id="senha" type="password" name="senha" autocomplete="new-password" minlength="8" required>
   <label for="senha2">Repita a senha</label>

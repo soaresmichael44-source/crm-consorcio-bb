@@ -238,6 +238,27 @@ class Permissoes(Base):
         with db.conectar() as conn:
             self.assertEqual(conn.execute("SELECT ativo FROM gerentes WHERE id = ?", (self.ger_b,)).fetchone()[0], 1)
 
+    def test_convite_cria_login_curto_e_senha(self):
+        import secrets as _s
+        senha = _s.token_urlsafe(12)  # senha de teste gerada aqui, nunca uma real
+        with db.conectar() as conn:
+            rid = conn.execute("INSERT INTO representantes (nome, criado_em, convite_token, convite_expira) "
+                               "VALUES (?, ?, ?, ?)", ("Karla Teste Login", db.agora(), "convite-teste-123456789",
+                                                       "2099-01-01 00:00:00")).lastrowid
+        p = self.c.get("/acesso/convite-teste-123456789").get_data(as_text=True)
+        self.assertIn('value="karla"', p)  # login sugerido: primeiro nome, sem acento
+        r = self.c.post("/acesso/convite-teste-123456789", data={"login": "karla x", "senha": senha, "senha2": senha})
+        self.assertIn("3 a 20 letras", r.get_data(as_text=True))
+        self.c.post("/acesso/convite-teste-123456789", data={"login": "Karla", "senha": senha, "senha2": senha})
+        with db.conectar() as conn:
+            r = conn.execute("SELECT login, convite_token FROM representantes WHERE id = ?", (rid,)).fetchone()
+            self.assertEqual((r["login"], r["convite_token"]), ("karla", None))
+        self.c.get("/sair")
+        self.assertIn("incorretos", self.c.post("/login", data={"login": "karla", "senha": "errada"}).get_data(as_text=True))
+        self.assertEqual(self.c.post("/login", data={"login": "KARLA", "senha": senha}).status_code, 302)
+        with self.c.session_transaction() as s:
+            self.assertEqual(s.get("rep_id"), rid)
+
     def test_ver_como_e_voltar(self):
         self.como_admin()
         self.c.post(f"/rede/representante/{self.rep_a}/ver-como")

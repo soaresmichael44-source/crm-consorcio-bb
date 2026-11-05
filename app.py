@@ -94,12 +94,13 @@ def login():
     if request.method == "POST":
         ip = request.remote_addr
         _tentativas[ip] = [t for t in _tentativas[ip] if time.time() - t < 900]
-        email = request.form.get("email", "").strip().lower()
+        usuario = (request.form.get("login") or request.form.get("email") or "").strip().lower()
         if len(_tentativas[ip]) >= 8:
             erro = "Muitas tentativas. Espere 15 minutos."
-        elif email:
+        elif usuario:
             with db.conectar() as conn:
-                r = conn.execute("SELECT * FROM representantes WHERE LOWER(email) = ? AND ativo = 1", (email,)).fetchone()
+                r = conn.execute("SELECT * FROM representantes WHERE (LOWER(login) = ? OR LOWER(email) = ?) AND ativo = 1",
+                                 (usuario, usuario)).fetchone()
                 if r and r["senha_hash"] and check_password_hash(r["senha_hash"], request.form.get("senha", "")):
                     conn.execute("UPDATE representantes SET ultimo_acesso = ? WHERE id = ?", (db.agora(), r["id"]))
                     session.clear()
@@ -107,7 +108,7 @@ def login():
                     session["rep_id"] = r["id"]
                     return redirect(proximo)
             _tentativas[ip].append(time.time())
-            erro = "E-mail ou senha incorretos."
+            erro = "Login ou senha incorretos."
         elif any(x and secrets.compare_digest(request.form.get("senha", ""), x) for x in (SENHA, SENHA_APRESENTACAO)):
             session.clear()
             session.permanent = True
@@ -133,26 +134,40 @@ def acesso(token):
         if not r or (r["convite_expira"] or "") < db.agora():
             return render_template("acesso.html", r=None)
         erro = None
+        sugestao = r["login"] or _sugerir_login(conn, r["nome"], r["id"])
         if request.method == "POST":
-            email = request.form.get("email", "").strip().lower()
+            login_ = request.form.get("login", "").strip().lower()
             senha = request.form.get("senha", "")
-            dono = conn.execute("SELECT id FROM representantes WHERE LOWER(email) = ? AND id <> ?", (email, r["id"])).fetchone()
-            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-                erro = "Digite um e-mail válido."
+            dono = conn.execute("SELECT id FROM representantes WHERE LOWER(login) = ? AND id <> ?", (login_, r["id"])).fetchone()
+            if not re.fullmatch(r"[a-z0-9._]{3,20}", login_):
+                erro = "O login precisa ter de 3 a 20 letras ou números, sem espaço nem acento (pode usar ponto)."
             elif dono:
-                erro = "Este e-mail já é de outro representante."
+                erro = "Este login já é de outro representante. Escolha outro."
             elif len(senha) < 8:
                 erro = "A senha precisa de pelo menos 8 caracteres."
             elif senha != request.form.get("senha2", ""):
                 erro = "As duas senhas não são iguais."
             else:
-                conn.execute("UPDATE representantes SET email = ?, senha_hash = ?, convite_token = NULL, convite_expira = NULL, "
-                             "ultimo_acesso = ? WHERE id = ?", (email, generate_password_hash(senha, method="pbkdf2:sha256:600000"), db.agora(), r["id"]))
+                conn.execute("UPDATE representantes SET login = ?, senha_hash = ?, convite_token = NULL, convite_expira = NULL, "
+                             "ultimo_acesso = ? WHERE id = ?", (login_, generate_password_hash(senha, method="pbkdf2:sha256:600000"), db.agora(), r["id"]))
                 session.clear()
                 session.permanent = True
                 session["rep_id"] = r["id"]
                 return redirect(url_for("painel"))
-    return render_template("acesso.html", r=r, erro=erro)
+    return render_template("acesso.html", r=r, erro=erro, sugestao=sugestao)
+
+
+def _sugerir_login(conn, nome, rid):
+    """Primeiro nome sem acento ("carina"); se já existir, nome.sobrenome, depois com número."""
+    import unicodedata
+    partes = unicodedata.normalize("NFKD", nome.lower()).encode("ascii", "ignore").decode().split()
+    partes = ["".join(ch for ch in p if ch.isalnum()) for p in partes] or ["rep"]
+    opcoes = [partes[0][:20]] + ([f"{partes[0]}.{partes[-1]}"[:20]] if len(partes) > 1 else [])
+    opcoes += [f"{partes[0][:17]}{n}" for n in range(2, 99)]
+    for o in opcoes:
+        if len(o) >= 3 and not conn.execute("SELECT 1 FROM representantes WHERE LOWER(login) = ? AND id <> ?", (o, rid)).fetchone():
+            return o
+    return f"rep{rid}"
 
 
 def so_admin(f):
