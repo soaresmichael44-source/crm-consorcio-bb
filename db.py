@@ -434,6 +434,9 @@ def _schema_pg():
 def iniciar():
     with conectar() as conn:
         if PG:
+            # Dois serviços (portal-consorcio e o reserva) sobem juntos a cada publicação: sem esta trava, os dois
+            # criavam tabelas/colunas ao mesmo tempo e um caía na largada (aconteceu em 05/11/2026).
+            conn.execute("SELECT pg_advisory_xact_lock(4242001)")
             for comando in _schema_pg().split(";"):
                 linhas = [l for l in comando.splitlines() if not l.strip().startswith("--")]
                 if "".join(linhas).strip():
