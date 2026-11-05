@@ -16,8 +16,23 @@
 body{margin:0;min-height:100vh;font-family:Inter,system-ui,sans-serif;color:#18203a;
   background:radial-gradient(1200px 600px at 10% -10%,#2a3f95 0%,transparent 60%),linear-gradient(160deg,#16245c 0%,#0f1a45 100%);
   display:flex;align-items:center;justify-content:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom))}
-.caixa{width:100%;max-width:400px}
+.pagina{width:100%;max-width:1040px;display:grid;grid-template-columns:1.15fr 400px;gap:48px;align-items:center}
+.caixa{width:100%;max-width:400px;justify-self:center}
+.hero{color:#fff}
+.hero svg{width:100%;height:auto;display:block;filter:drop-shadow(0 18px 40px rgba(0,0,0,.25))}
+.hero h2{font-size:30px;line-height:1.15;font-weight:800;letter-spacing:-.02em;margin:22px 0 10px}
+.hero h2 em{font-style:normal;color:#f8d936}
+.hero p{color:#c9d2f2;font-size:15px;line-height:1.55;margin:0;max-width:460px}
+.pontos{display:flex;gap:18px;flex-wrap:wrap;margin-top:18px;font-size:13px;color:#e3e8fb}
+.pontos span::before{content:"✓ ";color:#f8d936;font-weight:800}
+@media (max-width:900px){
+  .pagina{grid-template-columns:1fr;gap:6px}
+  .hero{max-width:400px;justify-self:center;text-align:center}
+  .hero svg{max-width:330px;margin:0 auto}
+  .hero h2,.hero p,.pontos{display:none}
+}
 .marca{color:#fff;text-align:center;margin-bottom:22px}
+@media (max-width:900px){.marca .selo{display:none}.marca{margin-top:14px}}
 .selo{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:18px;background:#f8d936;
   color:#16245c;font-weight:800;font-size:26px;letter-spacing:-.02em;box-shadow:0 10px 30px rgba(0,0,0,.25);margin-bottom:14px}
 .marca h1{margin:0;font-size:24px;font-weight:800;letter-spacing:-.01em}
@@ -41,6 +56,76 @@ button{background:#f8d936;color:#16245c}
 </style>
 </head>
 <body>
+<div class="pagina">
+<div class="hero">
+  <svg viewBox="0 0 520 330" role="img" aria-label="Casa, carro e caminhão: os bens que o consórcio realiza">
+    <defs>
+      <linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b4196"/><stop offset="1" stop-color="#1b2d72"/></linearGradient>
+      <linearGradient id="chao" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#24398a"/><stop offset="1" stop-color="#16245c"/></linearGradient>
+    </defs>
+    <rect x="0" y="0" width="520" height="330" rx="28" fill="url(#ceu)"/>
+    <circle cx="420" cy="78" r="44" fill="#f8d936" opacity=".95"/>
+    <circle cx="420" cy="78" r="64" fill="#f8d936" opacity=".12"/>
+    <!-- prédios ao fundo -->
+    <g fill="#3a51a8" opacity=".55">
+      <rect x="28" y="112" width="46" height="128" rx="4"/><rect x="82" y="86" width="38" height="154" rx="4"/>
+      <rect x="300" y="120" width="40" height="120" rx="4"/><rect x="346" y="140" width="52" height="100" rx="4"/>
+      <rect x="452" y="128" width="40" height="112" rx="4"/>
+    </g>
+    <g fill="#5a70c4" opacity=".5">
+      <rect x="38" y="126" width="8" height="8"/><rect x="56" y="126" width="8" height="8"/><rect x="38" y="146" width="8" height="8"/>
+      <rect x="92" y="100" width="7" height="7"/><rect x="106" y="100" width="7" height="7"/><rect x="92" y="118" width="7" height="7"/>
+      <rect x="356" y="152" width="8" height="8"/><rect x="374" y="152" width="8" height="8"/><rect x="462" y="142" width="8" height="8"/>
+    </g>
+    <rect x="0" y="238" width="520" height="92" rx="0" fill="url(#chao)"/>
+    <rect x="0" y="238" width="520" height="4" fill="#f8d936" opacity=".35"/>
+    <!-- casa -->
+    <g transform="translate(150 118)">
+      <polygon points="0,62 70,8 140,62" fill="#f8d936"/>
+      <rect x="14" y="60" width="112" height="62" rx="4" fill="#ffffff"/>
+      <rect x="56" y="80" width="28" height="42" rx="3" fill="#16245c"/>
+      <circle cx="78" cy="102" r="2.4" fill="#f8d936"/>
+      <rect x="26" y="74" width="22" height="20" rx="3" fill="#c9d6ff"/><rect x="92" y="74" width="22" height="20" rx="3" fill="#c9d6ff"/>
+      <rect x="100" y="18" width="14" height="28" fill="#e9eefc"/>
+    </g>
+    <!-- chave com etiqueta "contemplado" -->
+    <g transform="translate(300 176) rotate(-12)">
+      <circle cx="0" cy="0" r="15" fill="none" stroke="#f8d936" stroke-width="6"/>
+      <rect x="13" y="-3" width="46" height="7" rx="3" fill="#f8d936"/>
+      <rect x="46" y="3" width="6" height="10" fill="#f8d936"/><rect x="36" y="3" width="6" height="7" fill="#f8d936"/>
+      <rect x="-64" y="-46" width="92" height="28" rx="8" fill="#ffffff"/>
+      <text x="-18" y="-27" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="12.5" font-weight="800" fill="#16245c">Realizado!</text>
+      <line x1="-6" y1="-18" x2="-2" y2="-12" stroke="#ffffff" stroke-width="2"/>
+    </g>
+    <!-- caminhão -->
+    <g transform="translate(330 214)">
+      <rect x="0" y="0" width="112" height="56" rx="6" fill="#ffffff"/>
+      <rect x="112" y="16" width="44" height="40" rx="6" fill="#f8d936"/>
+      <rect x="122" y="22" width="24" height="14" rx="3" fill="#16245c" opacity=".85"/>
+      <rect x="10" y="12" width="92" height="8" rx="3" fill="#e1e7fb"/>
+      <circle cx="28" cy="60" r="12" fill="#0f1a45"/><circle cx="28" cy="60" r="5" fill="#c9d2f2"/>
+      <circle cx="84" cy="60" r="12" fill="#0f1a45"/><circle cx="84" cy="60" r="5" fill="#c9d2f2"/>
+      <circle cx="136" cy="60" r="12" fill="#0f1a45"/><circle cx="136" cy="60" r="5" fill="#c9d2f2"/>
+    </g>
+    <!-- carro -->
+    <g transform="translate(46 226)">
+      <path d="M8 34 Q10 16 34 12 L60 4 Q76 0 92 10 L110 22 Q124 24 126 34 L126 44 Q126 50 120 50 L12 50 Q6 50 6 44 Z" fill="#f8d936"/>
+      <path d="M40 14 L62 8 Q72 6 82 12 L94 22 L40 22 Z" fill="#16245c" opacity=".85"/>
+      <circle cx="34" cy="50" r="12" fill="#0f1a45"/><circle cx="34" cy="50" r="5" fill="#c9d2f2"/>
+      <circle cx="102" cy="50" r="12" fill="#0f1a45"/><circle cx="102" cy="50" r="5" fill="#c9d2f2"/>
+    </g>
+    <!-- moedas -->
+    <g transform="translate(262 262)">
+      <ellipse cx="0" cy="22" rx="20" ry="6" fill="#d6b51f"/><rect x="-20" y="10" width="40" height="12" fill="#e9c82a"/>
+      <ellipse cx="0" cy="10" rx="20" ry="6" fill="#f8d936"/><rect x="-20" y="-2" width="40" height="12" fill="#e9c82a"/>
+      <ellipse cx="0" cy="-2" rx="20" ry="6" fill="#ffe46b"/>
+      <text x="0" y="2" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="800" fill="#16245c">R$</text>
+    </g>
+  </svg>
+  <h2>Casa, carro e caminhão: o <em>consórcio certo</em> para cada cliente da agência.</h2>
+  <p>As listas dos gerentes chegam aqui na hora, o follow-up é feito pela operação central e os clientes interessados chegam prontos para você atender.</p>
+  <div class="pontos"><span>Lista lida pela IA em segundos</span><span>Cliente interessado com resumo</span><span>Produção da sua carteira</span></div>
+</div>
 <div class="caixa">
   <div class="marca">
     <div class="selo">M</div>
@@ -70,6 +155,7 @@ button{background:#f8d936;color:#16245c}
   </div>
 
   <p class="rodape">Acesso exclusivo para representantes autorizados.<br>No celular: toque em Compartilhar › "Adicionar à Tela de Início" para usar como aplicativo.</p>
+</div>
 </div>
 </body>
 </html>
